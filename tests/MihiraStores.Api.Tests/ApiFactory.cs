@@ -1,5 +1,4 @@
 using MihiraStores.Api.Data;
-using MihiraStores.Api.Domain;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -53,16 +52,18 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public async Task ResetAsync()
     {
         await using var db = CreateDbContext();
+        await db.StockMovements.ExecuteDeleteAsync();
         await db.TransferLines.ExecuteDeleteAsync();
         await db.Transfers.ExecuteDeleteAsync();
         await db.StockLevels.ExecuteDeleteAsync(); // tests may delete rows, so rebuild them all
 
-        db.StockLevels.AddRange(DbSeeder.StartingStock.Select(s => new StockLevel
+        var branches = await db.Branches.ToDictionaryAsync(b => b.Name);
+        var products = await db.Products.ToDictionaryAsync(p => p.Sku);
+        foreach (var ((branch, sku), quantity) in DbSeeder.StartingStock)
         {
-            BranchId = BranchIds[s.Key.Branch],
-            ProductId = ProductIds[s.Key.Sku],
-            Quantity = s.Value,
-        }));
+            DbSeeder.AddOpeningStock(db, branches[branch], products[sku], quantity);
+        }
+
         await db.SaveChangesAsync();
     }
 }

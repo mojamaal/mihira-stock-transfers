@@ -93,6 +93,53 @@ namespace MihiraStores.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("MihiraStores.Api.Domain.StockMovement", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("BalanceAfter")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BranchId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Change")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("ProductId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("TransferId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("TransferId");
+
+                    b.HasIndex("BranchId", "ProductId", "Id");
+
+                    b.ToTable("StockMovements", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockMovements_BalanceAfter_NonNegative", "[BalanceAfter] >= 0");
+
+                            t.HasCheckConstraint("CK_StockMovements_Change_NonZero", "[Change] <> 0");
+                        });
+                });
+
             modelBuilder.Entity("MihiraStores.Api.Domain.Transfer", b =>
                 {
                     b.Property<int>("Id")
@@ -213,6 +260,32 @@ namespace MihiraStores.Api.Data.Migrations
                     b.Navigation("Branch");
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("MihiraStores.Api.Domain.StockMovement", b =>
+                {
+                    b.HasOne("MihiraStores.Api.Domain.Branch", "Branch")
+                        .WithMany()
+                        .HasForeignKey("BranchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MihiraStores.Api.Domain.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MihiraStores.Api.Domain.Transfer", "Transfer")
+                        .WithMany()
+                        .HasForeignKey("TransferId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Branch");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Transfer");
                 });
 
             modelBuilder.Entity("MihiraStores.Api.Domain.Transfer", b =>

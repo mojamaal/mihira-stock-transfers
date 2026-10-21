@@ -10,6 +10,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<StockLevel> StockLevels => Set<StockLevel>();
     public DbSet<Transfer> Transfers => Set<Transfer>();
     public DbSet<TransferLine> TransferLines => Set<TransferLine>();
+    public DbSet<StockMovement> StockMovements => Set<StockMovement>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -66,6 +67,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             l.Property(x => x.ShortfallReason).HasConversion<string>().HasMaxLength(20);
             l.HasOne(x => x.Product).WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
             l.HasIndex(x => new { x.TransferId, x.ProductId }).IsUnique();
+        });
+
+        model.Entity<StockMovement>(m =>
+        {
+            m.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
+            m.ToTable(tb =>
+            {
+                tb.HasCheckConstraint("CK_StockMovements_Change_NonZero", "[Change] <> 0");
+                tb.HasCheckConstraint("CK_StockMovements_BalanceAfter_NonNegative", "[BalanceAfter] >= 0");
+            });
+            m.HasOne(x => x.Branch).WithMany().HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.Restrict);
+            m.HasOne(x => x.Product).WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
+            m.HasOne(x => x.Transfer).WithMany().HasForeignKey(x => x.TransferId).OnDelete(DeleteBehavior.Restrict);
+            m.HasIndex(x => new { x.BranchId, x.ProductId, x.Id });
         });
     }
 }

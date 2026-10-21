@@ -3,6 +3,7 @@ import type {
   CreateTransferRequest,
   Product,
   StockItem,
+  StockMovement,
   Transfer,
   TransferAction,
   TransferDirection,
@@ -78,6 +79,8 @@ export const api = {
   branches: () => request<Branch[]>('/branches'),
   products: () => request<Product[]>('/products'),
   stock: (branchId: number) => request<StockItem[]>(`/branches/${branchId}/stock`),
+  movements: (branchId: number, productId: number, take = 8) =>
+    request<StockMovement[]>(`/branches/${branchId}/movements?productId=${productId}&take=${take}`),
 
   transfers: (filter: {
     branchId: number | null

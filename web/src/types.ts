@@ -16,7 +16,23 @@ export type StockItem = {
   incoming: number
 }
 
-export type TransferStatus = 'Requested' | 'Dispatched' | 'Received' | 'Cancelled'
+export type StockMovementKind = 'Opening' | 'TransferOut' | 'TransferIn'
+
+/** One ledger entry: what changed a branch's stock, by how much, and the balance straight after. */
+export type StockMovement = {
+  id: number
+  productId: number
+  sku: string
+  productName: string
+  kind: StockMovementKind
+  change: number
+  balanceAfter: number
+  transferId: number | null
+  counterparty: string | null
+  occurredAt: string
+}
+
+export type TransferStatus ='Requested' | 'Dispatched' | 'Received' | 'Cancelled'
 
 export const TRANSFER_STATUSES: TransferStatus[] = ['Requested', 'Dispatched', 'Received', 'Cancelled']
 

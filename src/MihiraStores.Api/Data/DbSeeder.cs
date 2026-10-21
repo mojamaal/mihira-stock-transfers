@@ -43,11 +43,29 @@ public static class DbSeeder
             // Every branch gets a row for every product (zero included), so stock is always explicit.
             for (var i = 0; i < products.Count; i++)
             {
-                db.StockLevels.Add(new StockLevel { Branch = branch, Product = products[i], Quantity = stock[i] });
+                AddOpeningStock(db, branch, products[i], stock[i]);
             }
         }
 
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Adds a stock level and, when it isn't zero, the matching Opening entry in the ledger.</summary>
+    public static void AddOpeningStock(AppDbContext db, Branch branch, Product product, int quantity)
+    {
+        db.StockLevels.Add(new StockLevel { Branch = branch, Product = product, Quantity = quantity });
+        if (quantity != 0)
+        {
+            db.StockMovements.Add(new StockMovement
+            {
+                Branch = branch,
+                Product = product,
+                Kind = StockMovementKind.Opening,
+                Change = quantity,
+                BalanceAfter = quantity,
+                OccurredAt = DateTimeOffset.UtcNow,
+            });
+        }
     }
 
     /// <summary>The seeded starting figures keyed by (branch name, SKU). The tests use this to reset stock between runs.</summary>

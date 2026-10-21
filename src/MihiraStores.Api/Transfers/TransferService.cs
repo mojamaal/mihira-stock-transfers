@@ -75,7 +75,7 @@ public sealed class TransferService(AppDbContext db, TransferQueries queries, St
         var shortLines = new List<TransferLine>();
         foreach (var line in transfer.Lines)
         {
-            if (!await stock.TryTakeAsync(transfer.FromBranchId, line.ProductId, line.Quantity, ct))
+            if (!await stock.TryTakeAsync(transfer.FromBranchId, line.ProductId, line.Quantity, id, ct))
             {
                 shortLines.Add(line);
             }
@@ -118,7 +118,7 @@ public sealed class TransferService(AppDbContext db, TransferQueries queries, St
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(l => l.QuantityReceived, received.Quantity)
                     .SetProperty(l => l.ShortfallReason, received.Reason), ct);
-            await stock.AddAsync(transfer.ToBranchId, line.ProductId, received.Quantity, ct);
+            await stock.AddAsync(transfer.ToBranchId, line.ProductId, received.Quantity, id, ct);
         }
 
         return new CommandResult(await queries.GetAsync(id, ct), Replayed: false);
@@ -136,6 +136,7 @@ public sealed class TransferService(AppDbContext db, TransferQueries queries, St
     /// Re-running is safe because every command is idempotent: if an earlier attempt actually committed,
     /// the retry's status claim finds nothing to claim and returns the transfer as a replay.
     /// Throwing from <paramref name="work"/> rolls everything back (the transaction is disposed uncommitted).
+    /// Entities that <paramref name="work"/> staged (the stock ledger rows) are saved in the same transaction.
     /// </summary>
     private Task<CommandResult> InTransactionAsync(Func<Task<CommandResult>> work, CancellationToken ct) =>
         db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
@@ -143,6 +144,7 @@ public sealed class TransferService(AppDbContext db, TransferQueries queries, St
             db.ChangeTracker.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             var result = await work();
+            await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             return result;
         });
