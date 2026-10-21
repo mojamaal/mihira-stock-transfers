@@ -71,6 +71,17 @@ image (~1.5 GB), so it can take a few minutes. After that the suite takes about 
 
 Optional: `src/MihiraStores.Api/MihiraStores.Api.http` has sample requests (VS Code REST Client / Visual Studio / Rider).
 
+**Where the brief's example tests are** (all in `tests/MihiraStores.Api.Tests/`, run against real SQL Server):
+
+| Brief's example | Tests |
+|---|---|
+| Over-stock dispatch | `TransferLifecycleTests.Dispatch_that_would_make_stock_negative_is_rejected_and_nothing_moves`, `Two_transfers_competing_for_the_same_stock_cannot_both_be_dispatched` |
+| Double dispatch | `TransferLifecycleTests.Parallel_dispatches_of_the_same_transfer_move_stock_exactly_once` (10 at once), `Dispatching_twice_is_a_no_op_the_second_time` |
+| Receive | `TransferLifecycleTests.Dispatch_then_receive_moves_stock_from_sender_to_receiver_once`, `Parallel_receives_of_the_same_transfer_add_stock_exactly_once`, `Receive_before_dispatch_is_rejected` |
+| Other rules | Cancel, status transitions, validation (same branch, zero quantity), idempotent create, partial receipt, ledger reconciliation, live events: 42 tests in total |
+
+Last run: `Passed! - Failed: 0, Passed: 42, Skipped: 0, Total: 42`.
+
 ---
 
 ## How double counting and negative stock are prevented
@@ -257,5 +268,3 @@ They cover the AI-assisted build session. Reading the brief beforehand and revie
 | Hardening: fixes, ledger, live updates (commits `79fee2c` to `acdcf7c`) | 11:40:33 | 12:17:40 | ~37 min |
 | Documentation update (this README, AI notes) | 12:17:40 | final commit (see `git log`) | — |
 
-**Development started at 10:42:57 and the last code commit was at 12:17:40**, about 1 h 35 min from start to
-finish. Run `git log --format='%h %ci %s'` to see every commit time.
