@@ -1,0 +1,45 @@
+@api = http://localhost:5080/api
+
+### Branches (the warehouse is a branch with isWarehouse = true)
+GET {{api}}/branches
+
+### Products
+GET {{api}}/products
+
+### Stock at Colombo (id 2)
+GET {{api}}/branches/2/stock
+
+### Create a transfer Colombo → Kandy. Re-sending with the same Idempotency-Key returns the same transfer.
+POST {{api}}/transfers
+Content-Type: application/json
+Idempotency-Key: 6f1c7c2e-4a8b-4f8e-9b0c-1a2b3c4d5e6f
+
+{
+  "fromBranchId": 2,
+  "toBranchId": 3,
+  "lines": [
+    { "productId": 1, "quantity": 5 },
+    { "productId": 4, "quantity": 3 }
+  ]
+}
+
+### Invalid: same branch, zero quantity (400 with field errors)
+POST {{api}}/transfers
+Content-Type: application/json
+
+{ "fromBranchId": 2, "toBranchId": 2, "lines": [ { "productId": 1, "quantity": 0 } ] }
+
+### List transfers involving Kandy that are still Requested
+GET {{api}}/transfers?branchId=3&status=Requested
+
+### Get one transfer
+GET {{api}}/transfers/1
+
+### Dispatch (stock leaves the sender). Sending it twice moves stock once.
+POST {{api}}/transfers/1/dispatch
+
+### Receive (stock arrives at the receiver)
+POST {{api}}/transfers/1/receive
+
+### Cancel (only while Requested)
+POST {{api}}/transfers/1/cancel
