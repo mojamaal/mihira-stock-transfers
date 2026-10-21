@@ -38,8 +38,14 @@ GET {{api}}/transfers/1
 ### Dispatch (stock leaves the sender). Sending it twice moves stock once.
 POST {{api}}/transfers/1/dispatch
 
-### Receive (stock arrives at the receiver)
+### Receive (stock arrives at the receiver). With no body, everything sent is received.
 POST {{api}}/transfers/1/receive
+
+### Partial receive: 2 of the 5 rice arrived damaged. Products left out count as fully received.
+POST {{api}}/transfers/1/receive
+Content-Type: application/json
+
+{ "lines": [ { "productId": 1, "quantityReceived": 3 } ] }
 
 ### Cancel (only while Requested)
 POST {{api}}/transfers/1/cancel

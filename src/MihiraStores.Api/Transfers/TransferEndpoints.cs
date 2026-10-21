@@ -31,8 +31,9 @@ public static class TransferEndpoints
         group.MapPost("/{id:int}/dispatch", (int id, TransferService transfers, CancellationToken ct) =>
             transfers.DispatchAsync(id, ct));
 
-        group.MapPost("/{id:int}/receive", (int id, TransferService transfers, CancellationToken ct) =>
-            transfers.ReceiveAsync(id, ct));
+        // The body is optional: without one, everything sent is received.
+        group.MapPost("/{id:int}/receive", (int id, ReceiveTransferRequest? request, TransferService transfers, CancellationToken ct) =>
+            transfers.ReceiveAsync(id, request, ct));
 
         group.MapPost("/{id:int}/cancel", (int id, TransferService transfers, CancellationToken ct) =>
             transfers.CancelAsync(id, ct));

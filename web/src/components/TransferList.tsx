@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError, api, toApiError } from '../api'
 import { TRANSFER_STATUSES, type Branch, type Transfer, type TransferAction, type TransferStatus } from '../types'
 import { ArrowRight, Boxes, Refresh } from './icons'
-import { ErrorBanner, Segmented, Sheet, StatusBadge } from './ui'
+import { ErrorBanner, Segmented, Sheet, StatusBadge, Stepper } from './ui'
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
 const formatDate = (iso: string) => dateFormat.format(new Date(iso))
@@ -32,6 +32,7 @@ export function TransferList({ branches, version, onChanged }: Props) {
   const [actionError, setActionError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState<Record<number, TransferAction>>({})
   const [confirmCancel, setConfirmCancel] = useState<Transfer | null>(null)
+  const [receiving, setReceiving] = useState<{ transfer: Transfer; quantities: Record<number, string> } | null>(null)
   const [reloadTick, setReloadTick] = useState(0)
   const [recentlyUpdated, setRecentlyUpdated] = useState<number | null>(null)
 
@@ -56,14 +57,18 @@ export function TransferList({ branches, version, onChanged }: Props) {
     return () => { ignore = true }
   }, [branchId, status, version, reloadTick, requestKey])
 
-  async function run(transfer: Transfer, action: TransferAction) {
+  function openReceive(transfer: Transfer) {
+    setReceiving({ transfer, quantities: Object.fromEntries(transfer.lines.map((l) => [l.productId, String(l.quantity)])) })
+  }
+
+  async function run(transfer: Transfer, action: TransferAction, body?: unknown) {
     if (inFlight.current.has(transfer.id)) return
     inFlight.current.add(transfer.id)
     setBusy((b) => ({ ...b, [transfer.id]: action }))
     setActionError(null)
 
     try {
-      const updated = await api.act(transfer.id, action)
+      const updated = await api.act(transfer.id, action, body)
       setTransfers((list) => list?.map((t) => (t.id === updated.id ? updated : t)) ?? list)
       setRecentlyUpdated(updated.id)
       onChanged(updated, action)
@@ -150,7 +155,11 @@ export function TransferList({ branches, version, onChanged }: Props) {
               transfer={t}
               busyAction={busy[t.id]}
               highlighted={recentlyUpdated === t.id}
-              onAction={(action) => (action === 'cancel' ? setConfirmCancel(t) : run(t, action))}
+              onAction={(action) => {
+                if (action === 'cancel') setConfirmCancel(t)
+                else if (action === 'receive') openReceive(t)
+                else void run(t, action)
+              }}
             />
           ))}
         </ul>
@@ -169,7 +178,73 @@ export function TransferList({ branches, version, onChanged }: Props) {
           setConfirmCancel(null)
         }}
       />
+
+      <ReceiveSheet
+        state={receiving}
+        onChange={(productId, value) =>
+          setReceiving((r) => r && { ...r, quantities: { ...r.quantities, [productId]: value } })}
+        onClose={() => setReceiving(null)}
+        onConfirm={(lines) => {
+          if (receiving) void run(receiving.transfer, 'receive', { lines })
+          setReceiving(null)
+        }}
+      />
     </section>
+  )
+}
+
+type ReceiveSheetProps = {
+  state: { transfer: Transfer; quantities: Record<number, string> } | null
+  onChange: (productId: number, value: string) => void
+  onClose: () => void
+  onConfirm: (lines: { productId: number; quantityReceived: number }[]) => void
+}
+
+/** Confirms what actually arrived. Prefilled with everything sent; lowering a figure records a shortfall. */
+function ReceiveSheet({ state, onChange, onClose, onConfirm }: ReceiveSheetProps) {
+  const lines = state?.transfer.lines ?? []
+  const parsed = lines.map((l) => {
+    const text = state?.quantities[l.productId] ?? ''
+    const value = /^\d+$/.test(text.trim()) ? Number(text) : null
+    return { line: l, value, valid: value !== null && value <= l.quantity }
+  })
+  const allValid = parsed.every((p) => p.valid)
+
+  return (
+    <Sheet
+      open={state !== null}
+      title={`Receive transfer #${state?.transfer.id ?? ''}`}
+      message={state && `Confirm what arrived at ${state.transfer.toBranch.name}. Lower a quantity if goods were damaged or missing.`}
+      confirmLabel="Receive"
+      cancelLabel="Not now"
+      confirmDisabled={!allValid}
+      onClose={onClose}
+      onConfirm={() => onConfirm(parsed.map((p) => ({ productId: p.line.productId, quantityReceived: p.value ?? 0 })))}
+    >
+      <ul className="receive-lines">
+        {parsed.map(({ line, value, valid }) => (
+          <li key={line.productId} className="receive-line">
+            <label htmlFor={`recv-${line.productId}`}>
+              {line.productName}
+              <span className="receive-sent">Sent {line.quantity}</span>
+            </label>
+            <Stepper
+              id={`recv-${line.productId}`}
+              label={`Received quantity of ${line.productName}`}
+              value={state?.quantities[line.productId] ?? ''}
+              onChange={(v) => onChange(line.productId, v)}
+              min={0}
+              max={line.quantity}
+              invalid={!valid}
+            />
+            {!valid && <span className="receive-note error">Enter 0 to {line.quantity}.</span>}
+            {valid && value !== null && value < line.quantity && (
+              <span className="receive-note">{line.quantity - value} short. This will be recorded on the transfer.</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Sheet>
   )
 }
 

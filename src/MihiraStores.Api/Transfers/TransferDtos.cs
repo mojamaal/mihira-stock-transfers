@@ -7,6 +7,11 @@ public sealed record CreateTransferRequest(int? FromBranchId, int? ToBranchId, L
 
 public sealed record CreateTransferLine(int? ProductId, int? Quantity);
 
+/// <summary>Optional body for receive. Products left out are treated as fully received.</summary>
+public sealed record ReceiveTransferRequest(List<ReceiveLine>? Lines);
+
+public sealed record ReceiveLine(int? ProductId, int? QuantityReceived);
+
 public sealed record BranchRef(int Id, string Name);
 
 public sealed record TransferLineDto(int ProductId, string Sku, string ProductName, int Quantity, int? QuantityReceived);

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using MihiraStores.Api.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -125,6 +126,42 @@ public sealed class TransferLifecycleTests(ApiFactory factory) : ApiTestBase(fac
 
         Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
         Assert.Equal(15 + 5, await StockOf(Kandy, Rice));
+    }
+
+    [Fact]
+    public async Task Partial_receive_adds_only_what_arrived_and_records_the_shortfall()
+    {
+        var id = await CreateTransfer(Colombo, Kandy, (Rice, 10), (Tea, 4));
+        await Act(id, "dispatch");
+
+        // 3 bags of rice arrived damaged; tea is left out of the body, so it counts as fully received.
+        var response = await Client.PostAsJsonAsync($"/api/transfers/{id}/receive",
+            new { lines = new[] { new { productId = Rice, quantityReceived = 7 } } });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var transfer = await ReadTransfer(response);
+        Assert.Equal(TransferStatus.Received, transfer.Status);
+        var rice = transfer.Lines.Single(l => l.ProductId == Rice);
+        Assert.Equal((10, 7), (rice.Quantity, rice.QuantityReceived));
+        Assert.Equal(4, transfer.Lines.Single(l => l.ProductId == Tea).QuantityReceived);
+
+        Assert.Equal(15 + 7, await StockOf(Kandy, Rice));
+        Assert.Equal(18 + 4, await StockOf(Kandy, Tea));
+        Assert.Equal(40 - 10, await StockOf(Colombo, Rice)); // the sender still lost all 10
+    }
+
+    [Fact]
+    public async Task Receiving_more_than_was_sent_is_rejected_and_the_transfer_stays_in_transit()
+    {
+        var id = await CreateTransfer(Colombo, Kandy, (Rice, 5));
+        await Act(id, "dispatch");
+
+        var response = await Client.PostAsJsonAsync($"/api/transfers/{id}/receive",
+            new { lines = new[] { new { productId = Rice, quantityReceived = 6 } } });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(TransferStatus.Dispatched, await StatusOf(id));
+        Assert.Equal(15, await StockOf(Kandy, Rice));
     }
 
     [Fact]

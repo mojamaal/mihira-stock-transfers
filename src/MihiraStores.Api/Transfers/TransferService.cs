@@ -136,7 +136,11 @@ public sealed class TransferService(AppDbContext db)
         return await GetAsync(id, ct);
     }
 
-    public async Task<TransferDto> ReceiveAsync(int id, CancellationToken ct)
+    /// <summary>
+    /// Adds the stock to the receiving branch. The receiver may record less than was sent (e.g. damaged goods):
+    /// only the received quantity is added, and the line keeps both figures so the shortfall stays on record.
+    /// </summary>
+    public async Task<TransferDto> ReceiveAsync(int id, ReceiveTransferRequest? request, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
@@ -154,9 +158,20 @@ public sealed class TransferService(AppDbContext db)
 
         var transfer = await LoadForStockMovementAsync(id, ct);
 
+        Dictionary<int, int> receivedByProduct;
+        try
+        {
+            receivedByProduct = ValidateReceivedQuantities(transfer, request);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct); // leave the transfer Dispatched
+            throw;
+        }
+
         foreach (var line in transfer.Lines)
         {
-            var received = line.Quantity;
+            var received = receivedByProduct.GetValueOrDefault(line.ProductId, line.Quantity);
 
             await db.TransferLines
                 .Where(l => l.Id == line.Id)
@@ -201,6 +216,38 @@ public sealed class TransferService(AppDbContext db)
         }
 
         throw AppException.Conflict(TransferWorkflow.RejectionMessage(id, action, status));
+    }
+
+    private static Dictionary<int, int> ValidateReceivedQuantities(Transfer transfer, ReceiveTransferRequest? request)
+    {
+        var result = new Dictionary<int, int>();
+        var errors = new Dictionary<string, string[]>();
+        var lines = request?.Lines ?? [];
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i];
+            var sent = transfer.Lines.FirstOrDefault(l => l.ProductId == line?.ProductId);
+
+            if (line?.ProductId is null || sent is null)
+            {
+                errors[$"lines[{i}].productId"] = ["This product is not part of the transfer."];
+            }
+            else if (result.ContainsKey(sent.ProductId))
+            {
+                errors[$"lines[{i}].productId"] = ["Each product can be listed only once."];
+            }
+            else if (line.QuantityReceived is not int received || received < 0 || received > sent.Quantity)
+            {
+                errors[$"lines[{i}].quantityReceived"] = [$"Received quantity must be between 0 and the {sent.Quantity} sent."];
+            }
+            else
+            {
+                result[sent.ProductId] = received;
+            }
+        }
+
+        return errors.Count > 0 ? throw AppException.Validation(errors) : result;
     }
 
     private async Task AddStockAsync(int branchId, int productId, int quantity, CancellationToken ct)
