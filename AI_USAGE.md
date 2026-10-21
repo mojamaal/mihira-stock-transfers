@@ -13,6 +13,11 @@
 - **Building the system.** Following that prompt, Claude Code wrote the API, schema and migrations, seeding,
   tests, React UI and these docs. It also ran builds, tests and a scripted browser walkthrough (Playwright with Edge)
   to check the UI, including double-click behaviour, light and dark mode, and phone width.
+- **Reviewing its own assumptions.** After the first build I asked Claude why it had made certain assumptions
+  and trade-offs, and whether they were wrong. It agreed several were weak (an idempotency key not bound to the
+  request, silent truncation of the list at 200, no retry on transient SQL errors, an implicit branch filter), and
+  then fixed them. It also added a stock movement ledger, stock visibility for open requests and incoming
+  transfers, required shortfall reasons, and live updates via server-sent events.
 - **Commits.** Claude Code made one commit per phase. Each commit carries a `Co-Authored-By: Claude` trailer.
 
 ## Where the AI was wrong or unhelpful
@@ -28,6 +33,13 @@ Examples from that log:
   effect, and `oxlint` flagged it. It was rewritten to derive the loading state instead.
 - **A false alarm.** Reviewing its own screenshots, Claude thought dark mode had a colour bug. The screenshot had
   been taken mid-transition. A delayed re-take showed it was fine.
+- **A race that didn't exist.** In its review, Claude said two concurrent receives into a missing stock row "could
+  collide" and return a 500, then wrote a fix and a test. The test passed even with the fix disabled, which showed
+  it proved nothing. A forced interleaving deadlocked, and a lock dump showed SQL Server already serialises that
+  case. Claude removed the misleading test, kept the fix as a documented safety net, and corrected the README.
+- **Garbled characters.** Claude edited two React files with a PowerShell text replacement that read UTF-8 as
+  Windows-1252, so characters like "…" and "→" were committed garbled. It noticed while reading a file later,
+  searched the repo for similar damage, and repaired both files.
 
 TODO (human): pick the example you noticed yourself, or add your own, and say in your own words how you noticed it.
 
@@ -39,5 +51,8 @@ TODO (human): write this section in your own words. Facts from the session recor
 - You reviewed and edited the build prompt before running it. You added the Apple UI/UX requirement and changed
   the test requirement to "perform meaningful automated tests".
 - You asked for the full build to proceed in one go.
+- You challenged the stated assumptions and trade-offs, asked for the weak ones to be fixed, and asked for live
+  updates instead of refetching.
+- To save time, you chose to skip the final browser walkthrough and fresh-clone check of the hardening round.
 - Decisions to confirm or change in your own words: SQL Server over PostgreSQL; returning 200 (not 409) for a
   repeated action; checking stock at dispatch rather than reserving at request; doing the optional partial receive.
