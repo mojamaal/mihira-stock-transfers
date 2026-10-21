@@ -363,6 +363,15 @@ button, input, select { font: inherit; color: inherit; }
 .badge-Received { background: var(--green-tint); color: var(--green); }
 .badge-Cancelled { background: var(--gray-tint); color: var(--secondary); }
 
+.pager {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--separator);
+  font-size: 13px; color: var(--secondary);
+}
+.pager-summary { font-variant-numeric: tabular-nums; }
+.pager-buttons { display: flex; align-items: center; gap: 8px; }
+.pager-page { font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; }
+
 .empty { text-align: center; padding: 40px 16px; color: var(--secondary); }
 .empty-title { margin: 10px 0 4px; font-weight: 600; color: var(--label); font-size: 16px; }
 .empty-text { margin: 0 0 12px; font-size: 14px; }

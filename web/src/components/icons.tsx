@@ -22,7 +22,19 @@ export const Swap = ({ size = 16 }: IconProps) => (
   </svg>
 )
 
-export const Plus = ({ size = 14 }: IconProps) => (
+export const ChevronLeft = ({ size = 14 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+    <path d="M10 3 5 8l5 5" {...stroke} strokeWidth={2} />
+  </svg>
+)
+
+export const ChevronRight = ({ size = 14 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+    <path d="m6 3 5 5-5 5" {...stroke} strokeWidth={2} />
+  </svg>
+)
+
+export const Plus =({ size = 14 }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
     <path d="M8 3v10M3 8h10" {...stroke} strokeWidth={2} />
   </svg>

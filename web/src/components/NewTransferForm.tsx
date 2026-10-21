@@ -119,7 +119,7 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
   const stores = branches.filter((b) => !b.isWarehouse)
   const branchOptions = (
     <>
-      <option value="" disabled>Chooseâ€¦</option>
+      <option value="" disabled>Choose…</option>
       {warehouse.length > 0 && (
         <optgroup label="Warehouse">
           {warehouse.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -205,7 +205,7 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
                     value={line.productId ?? ''}
                     onChange={(e) => updateLine(line.key, { productId: Number(e.target.value) })}
                   >
-                    <option value="" disabled>Choose a productâ€¦</option>
+                    <option value="" disabled>Choose a product…</option>
                     {products.map((p) => (
                       <option key={p.id} value={p.id} disabled={p.id !== line.productId && usedProducts.has(p.id)}>
                         {p.name}
@@ -253,7 +253,7 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
         </button>
 
         <button type="submit" className="btn btn-filled btn-large" disabled={!canSubmit} aria-busy={submitting}>
-          {submitting ? <><span className="spinner" aria-hidden="true" /> Requestingâ€¦</> : 'Request Transfer'}
+          {submitting ? <><span className="spinner" aria-hidden="true" /> Requesting…</> : 'Request Transfer'}
         </button>
       </form>
     </section>

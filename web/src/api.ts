@@ -5,6 +5,8 @@ import type {
   StockItem,
   Transfer,
   TransferAction,
+  TransferDirection,
+  TransferPage,
   TransferStatus,
 } from './types'
 
@@ -77,12 +79,20 @@ export const api = {
   products: () => request<Product[]>('/products'),
   stock: (branchId: number) => request<StockItem[]>(`/branches/${branchId}/stock`),
 
-  transfers: (filter: { branchId?: number | null; status?: TransferStatus | null }) => {
-    const query = new URLSearchParams()
-    if (filter.branchId) query.set('branchId', String(filter.branchId))
+  transfers: (filter: {
+    branchId: number | null
+    direction: TransferDirection
+    status: TransferStatus | null
+    page: number
+    pageSize: number
+  }) => {
+    const query = new URLSearchParams({ page: String(filter.page), pageSize: String(filter.pageSize) })
+    if (filter.branchId) {
+      query.set('branchId', String(filter.branchId))
+      query.set('direction', filter.direction)
+    }
     if (filter.status) query.set('status', filter.status)
-    const qs = query.toString()
-    return request<Transfer[]>(`/transfers${qs ? `?${qs}` : ''}`)
+    return request<TransferPage>(`/transfers?${query}`)
   },
 
   /** The idempotency key makes a double-click or a retry return the same transfer instead of creating another. */

@@ -34,6 +34,19 @@ export type Transfer = {
   allowedActions: TransferAction[]
 }
 
+/** Which side of a transfer a branch filter matches. */
+export type TransferDirection = 'Any' | 'Outgoing' | 'Incoming'
+
+export type TransferPage = {
+  items: Transfer[]
+  page: number
+  pageSize: number
+  totalCount: number
+  totalPages: number
+  /** Per-status totals under the branch/direction filter, ignoring the status filter. */
+  statusCounts: Record<TransferStatus, number>
+}
+
 export type CreateTransferRequest = {
   fromBranchId: number | null
   toBranchId: number | null

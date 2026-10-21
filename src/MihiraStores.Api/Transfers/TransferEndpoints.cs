@@ -13,8 +13,8 @@ public static class TransferEndpoints
     {
         var group = app.MapGroup("/api/transfers").WithTags("Transfers");
 
-        group.MapGet("/", (int? branchId, string? status, TransferQueries queries, CancellationToken ct) =>
-            queries.ListAsync(branchId, status, ct));
+        group.MapGet("/", (int? branchId, string? direction, string? status, int? page, int? pageSize, TransferQueries queries, CancellationToken ct) =>
+            queries.ListAsync(branchId, direction, status, page, pageSize, ct));
 
         group.MapGet("/{id:int}", (int id, TransferQueries queries, CancellationToken ct) =>
             queries.GetAsync(id, ct));

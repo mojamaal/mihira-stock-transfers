@@ -163,19 +163,54 @@ public sealed class CreateTransferTests(ApiFactory factory) : ApiTestBase(factor
     }
 
     [Fact]
-    public async Task List_filters_by_branch_on_either_side_and_by_status()
+    public async Task List_filters_by_branch_direction_and_status()
     {
         var colomboToKandy = await CreateTransfer(Colombo, Kandy, (Rice, 1));
         var kandyToGalle = await CreateTransfer(Kandy, Galle, (Rice, 1));
         var warehouseToColombo = await CreateTransfer(Warehouse, Colombo, (Rice, 1));
         await Act(warehouseToColombo, "dispatch");
 
-        var kandy = await Client.GetFromJsonAsync<List<Transfers.TransferDto>>($"/api/transfers?branchId={Kandy}", Json);
-        var dispatched = await Client.GetFromJsonAsync<List<Transfers.TransferDto>>("/api/transfers?status=Dispatched", Json);
+        var kandyAny = await List($"branchId={Kandy}");
+        var kandyOutgoing = await List($"branchId={Kandy}&direction=outgoing");
+        var kandyIncoming = await List($"branchId={Kandy}&direction=incoming");
+        var dispatched = await List("status=Dispatched");
 
-        Assert.Equal([kandyToGalle, colomboToKandy], kandy!.Select(t => t.Id));
-        Assert.Equal([warehouseToColombo], dispatched!.Select(t => t.Id));
+        Assert.Equal([kandyToGalle, colomboToKandy], kandyAny.Items.Select(t => t.Id));
+        Assert.Equal([kandyToGalle], kandyOutgoing.Items.Select(t => t.Id));
+        Assert.Equal([colomboToKandy], kandyIncoming.Items.Select(t => t.Id));
+        Assert.Equal([warehouseToColombo], dispatched.Items.Select(t => t.Id));
     }
+
+    [Fact]
+    public async Task List_pages_newest_first_and_reports_totals_and_status_counts()
+    {
+        var ids = new List<int>();
+        for (var i = 0; i < 25; i++) ids.Add(await CreateTransfer(Colombo, Kandy, (Rice, 1)));
+        await Act(ids[0], "cancel");
+
+        var page2 = await List("page=2&pageSize=10");
+
+        Assert.Equal(ids.AsEnumerable().Reverse().Skip(10).Take(10), page2.Items.Select(t => t.Id));
+        Assert.Equal((25, 3), (page2.TotalCount, page2.TotalPages));
+        Assert.Equal(24, page2.StatusCounts[TransferStatus.Requested]);
+        Assert.Equal(1, page2.StatusCounts[TransferStatus.Cancelled]);
+        Assert.Equal(0, page2.StatusCounts[TransferStatus.Received]);
+    }
+
+    [Theory]
+    [InlineData("direction=incoming")] // a direction needs a branch
+    [InlineData("pageSize=500")]
+    [InlineData("page=0")]
+    [InlineData("status=Lost")]
+    public async Task List_rejects_invalid_filters(string query)
+    {
+        var response = await Client.GetAsync($"/api/transfers?{query}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    private async Task<Transfers.TransferPage> List(string query) =>
+        (await Client.GetFromJsonAsync<Transfers.TransferPage>($"/api/transfers?{query}", Json))!;
 
     private static async Task<IDictionary<string, string[]>> ReadValidationErrors(HttpResponseMessage response)
     {

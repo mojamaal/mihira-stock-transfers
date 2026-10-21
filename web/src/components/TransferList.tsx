@@ -1,16 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, api, toApiError } from '../api'
-import { TRANSFER_STATUSES, type Branch, type Transfer, type TransferAction, type TransferStatus } from '../types'
-import { ArrowRight, Boxes, Refresh } from './icons'
+import {
+  TRANSFER_STATUSES,
+  type Branch,
+  type Transfer,
+  type TransferAction,
+  type TransferDirection,
+  type TransferPage,
+  type TransferStatus,
+} from '../types'
+import { ArrowRight, Boxes, ChevronLeft, ChevronRight, Refresh } from './icons'
 import { ErrorBanner, Segmented, Sheet, StatusBadge, Stepper } from './ui'
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
 const formatDate = (iso: string) => dateFormat.format(new Date(iso))
 
 const ACTION_LABELS: Record<TransferAction, { idle: string; busy: string; className: string }> = {
-  dispatch: { idle: 'Dispatch', busy: 'Dispatchingâ€¦', className: 'btn-filled' },
-  receive: { idle: 'Receive', busy: 'Receivingâ€¦', className: 'btn-success' },
-  cancel: { idle: 'Cancel', busy: 'Cancellingâ€¦', className: 'btn-destructive' },
+  dispatch: { idle: 'Dispatch', busy: 'Dispatching…', className: 'btn-filled' },
+  receive: { idle: 'Receive', busy: 'Receiving…', className: 'btn-success' },
+  cancel: { idle: 'Cancel', busy: 'Cancelling…', className: 'btn-destructive' },
 }
 
 // Buttons appear in this order regardless of the order the server lists them.
@@ -24,10 +32,14 @@ type Props = {
   onChanged: (transfer: Transfer, action: TransferAction, replayed: boolean) => void
 }
 
+const PAGE_SIZE = 10
+
 export function TransferList({ branches, version, onChanged }: Props) {
   const [branchId, setBranchId] = useState<number | null>(null)
+  const [direction, setDirection] = useState<TransferDirection>('Any')
   const [status, setStatus] = useState<TransferStatus | null>(null)
-  const [transfers, setTransfers] = useState<Transfer[] | null>(null)
+  const [page, setPage] = useState(1)
+  const [result, setResult] = useState<TransferPage | null>(null)
   const [settledKey, setSettledKey] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<ApiError | null>(null)
   const [actionError, setActionError] = useState<ApiError | null>(null)
@@ -42,21 +54,34 @@ export function TransferList({ branches, version, onChanged }: Props) {
   const inFlight = useRef(new Set<number>())
 
   // Loading is derived: the list is loading until the request for the current filters/version has settled.
-  const requestKey = `${branchId}|${status}|${version}|${reloadTick}`
+  const requestKey = `${branchId}|${direction}|${status}|${page}|${version}|${reloadTick}`
   const loading = settledKey !== requestKey
+  const transfers = result?.items ?? null
 
   useEffect(() => {
     let ignore = false
-    api.transfers({ branchId, status })
+    api.transfers({ branchId, direction, status, page, pageSize: PAGE_SIZE })
       .then((data) => {
         if (ignore) return
-        setTransfers(data)
+        // If the current page emptied (e.g. its last transfer moved to another status), step back to a page that exists.
+        if (data.items.length === 0 && page > data.totalPages) {
+          setPage(data.totalPages)
+          return
+        }
+        setResult(data)
         setLoadError(null)
       })
       .catch((err) => { if (!ignore) setLoadError(toApiError(err)) })
       .finally(() => { if (!ignore) setSettledKey(requestKey) })
     return () => { ignore = true }
-  }, [branchId, status, version, reloadTick, requestKey])
+  }, [branchId, direction, status, page, version, reloadTick, requestKey])
+
+  // Any filter change starts again from the first page.
+  const filterBy = {
+    branch: (id: number | null) => { setBranchId(id); setDirection('Any'); setPage(1) },
+    direction: (d: TransferDirection) => { setDirection(d); setPage(1) },
+    status: (s: TransferStatus | null) => { setStatus(s); setPage(1) },
+  }
 
   function openReceive(transfer: Transfer) {
     setReceiving({ transfer, quantities: Object.fromEntries(transfer.lines.map((l) => [l.productId, String(l.quantity)])) })
@@ -70,7 +95,7 @@ export function TransferList({ branches, version, onChanged }: Props) {
 
     try {
       const { transfer: updated, replayed } = await api.act(transfer.id, action, body)
-      setTransfers((list) => list?.map((t) => (t.id === updated.id ? updated : t)) ?? list)
+      setResult((r) => r && { ...r, items: r.items.map((t) => (t.id === updated.id ? updated : t)) })
       setRecentlyUpdated(updated.id)
       onChanged(updated, action, replayed)
     } catch (err) {
@@ -89,6 +114,11 @@ export function TransferList({ branches, version, onChanged }: Props) {
   }
 
   const filtered = branchId !== null || status !== null
+  const counts = result?.statusCounts
+  const allCount = counts ? Object.values(counts).reduce((a, b) => a + b, 0) : null
+  const withCount = (label: string, n: number | undefined | null) => (n == null ? label : `${label} ${n}`)
+  const firstShown = result ? (result.page - 1) * result.pageSize + 1 : 0
+  const lastShown = result ? firstShown + result.items.length - 1 : 0
 
   return (
     <section className="card" aria-labelledby="transfers-title">
@@ -114,18 +144,30 @@ export function TransferList({ branches, version, onChanged }: Props) {
           id="filter-branch"
           className="select"
           value={branchId ?? ''}
-          onChange={(e) => setBranchId(e.target.value === '' ? null : Number(e.target.value))}
+          onChange={(e) => filterBy.branch(e.target.value === '' ? null : Number(e.target.value))}
         >
           <option value="">All locations</option>
           {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
+        {branchId !== null && (
+          <Segmented
+            label="Direction"
+            value={direction}
+            onChange={filterBy.direction}
+            options={[
+              { value: 'Any', label: 'In & out' },
+              { value: 'Outgoing', label: 'Outgoing' },
+              { value: 'Incoming', label: 'Incoming' },
+            ]}
+          />
+        )}
         <Segmented
           label="Filter by status"
           value={status}
-          onChange={setStatus}
+          onChange={filterBy.status}
           options={[
-            { value: null, label: 'All' },
-            ...TRANSFER_STATUSES.map((s) => ({ value: s, label: s === 'Dispatched' ? 'In transit' : s })),
+            { value: null, label: withCount('All', allCount) },
+            ...TRANSFER_STATUSES.map((s) => ({ value: s, label: withCount(s === 'Dispatched' ? 'In transit' : s, counts?.[s]) })),
           ]}
         />
       </div>
@@ -143,7 +185,7 @@ export function TransferList({ branches, version, onChanged }: Props) {
             {filtered ? 'Try a different location or status.' : 'Requests you create will appear here.'}
           </p>
           {filtered && (
-            <button type="button" className="btn btn-tinted" onClick={() => { setBranchId(null); setStatus(null) }}>
+            <button type="button" className="btn btn-tinted" onClick={() => { filterBy.branch(null); filterBy.status(null) }}>
               Clear Filters
             </button>
           )}
@@ -166,10 +208,27 @@ export function TransferList({ branches, version, onChanged }: Props) {
         </ul>
       )}
 
+      {result && result.totalCount > 0 && (
+        <nav className="pager" aria-label="Transfer pages">
+          <span className="pager-summary">
+            {firstShown}–{lastShown} of {result.totalCount}
+          </span>
+          <div className="pager-buttons">
+            <button type="button" className="icon-button small" onClick={() => setPage((p) => p - 1)} disabled={result.page <= 1} aria-label="Previous page">
+              <ChevronLeft />
+            </button>
+            <span className="pager-page">Page {result.page} of {result.totalPages}</span>
+            <button type="button" className="icon-button small" onClick={() => setPage((p) => p + 1)} disabled={result.page >= result.totalPages} aria-label="Next page">
+              <ChevronRight />
+            </button>
+          </div>
+        </nav>
+      )}
+
       <Sheet
         open={confirmCancel !== null}
         title={`Cancel transfer #${confirmCancel?.id ?? ''}?`}
-        message={confirmCancel && `${confirmCancel.fromBranch.name} â†’ ${confirmCancel.toBranch.name}. No stock has moved yet, and this can't be undone.`}
+        message={confirmCancel && `${confirmCancel.fromBranch.name} → ${confirmCancel.toBranch.name}. No stock has moved yet, and this can't be undone.`}
         confirmLabel="Cancel Transfer"
         cancelLabel="Keep"
         tone="destructive"
@@ -274,8 +333,8 @@ function TransferRow({ transfer: t, busyAction, highlighted, onAction }: RowProp
           const short = l.quantityReceived !== null && l.quantityReceived < l.quantity ? l.quantity - l.quantityReceived : 0
           return (
             <span key={l.productId} className="chip" title={l.sku}>
-              {l.productName} <span className="chip-qty">Ã— {l.quantity}</span>
-              {short > 0 && <span className="chip-short">Â· {short} short</span>}
+              {l.productName} <span className="chip-qty">× {l.quantity}</span>
+              {short > 0 && <span className="chip-short">· {short} short</span>}
             </span>
           )
         })}
