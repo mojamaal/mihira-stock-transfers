@@ -44,6 +44,22 @@ $env:ConnectionStrings__Default = "Server=.\SQLEXPRESS;Database=MihiraStores;Tru
 > The SA password in `docker-compose.yml` / `appsettings.Development.json` is a throwaway **local development
 > credential only**. Never reuse it anywhere.
 
+### Using it
+
+The screen has three areas: **New Transfer** and **Stock on Hand** on the left, and **Transfers** on the right.
+A green **Live** badge in the header means changes made elsewhere appear automatically.
+
+1. **Request:** in New Transfer, pick **From** and **To**, choose a product and quantity (**Add product** for more
+   lines), and press **Request Transfer**. Each line shows what the sender has on hand, and warns if you ask for more.
+2. **Dispatch:** in Transfers, press **Dispatch**. Stock leaves the sender, and the receiver's stock shows it as incoming.
+3. **Receive:** press **Receive**. The quantities are prefilled with what was sent. Lower one if goods arrived
+   damaged or missing, pick a reason, and confirm. Only what arrived is added.
+4. **Cancel:** press **Cancel** on a transfer that hasn't been dispatched yet.
+5. **Try the rules:** request 5 Coconut Oil from Galle (it has 3) and dispatch it to see the refusal. Double-click
+   Dispatch, or press it in two windows at once, to see that stock moves only once.
+6. **Look back:** filter Transfers by location, direction (in/out) and status. Tap a product in Stock on Hand
+   to see every movement behind its figure.
+
 ### Run the tests
 
 ```bash
