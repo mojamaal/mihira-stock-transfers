@@ -257,14 +257,17 @@ docs/                           The build prompt used with Claude Code, and the 
 
 ## Time spent
 
-Exact times are taken from file-system and git commit timestamps (Sri Lanka time, UTC+05:30, 21 October 2026).
-They cover the AI-assisted build session. Reading the brief beforehand and reviewing afterwards are not included.
+**Started: 10:42:57 · Finished: 13:00:50 · Total: about 2 h 18 min** (21 October 2026, Sri Lanka time, UTC+05:30)
+
+Analysing the brief and writing the build prompt came just before that and was finished by 10:29:49, when the
+prompt file was saved. Times come from file-system and git commit timestamps. Run `git log --format='%h %ci %s'`
+to see every commit time.
 
 | Stage | Started | Finished | Duration |
 |---|---|---|---|
-| Analysing the brief and writing the build prompt | — | 10:29:49 (prompt file created) | — |
+| Analysing the brief and writing the build prompt | before 10:29:49 | 10:29:49 | not timestamped |
 | Build: setup to docs (commits `ec74dfd` to `6a9bcf2`) | 10:42:57 | 11:11:04 | ~28 min |
 | Review of assumptions and weak spots (discussion, no code) | 11:11:04 | 11:40:33 | ~29 min |
 | Hardening: fixes, ledger, live updates (commits `79fee2c` to `acdcf7c`) | 11:40:33 | 12:17:40 | ~37 min |
-| Documentation update (this README, AI notes) | 12:17:40 | final commit (see `git log`) | — |
+| Final changes, docs, my own review and push (commits `69bd96f` to `99a1f61`) | 12:17:40 | 13:00:50 | ~43 min |
 
