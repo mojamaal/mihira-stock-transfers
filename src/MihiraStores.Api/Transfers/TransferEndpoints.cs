@@ -1,4 +1,5 @@
 using MihiraStores.Api.Errors;
+using MihiraStores.Api.Live;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MihiraStores.Api.Transfers;
@@ -23,24 +24,33 @@ public static class TransferEndpoints
             CreateTransferRequest request,
             [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
             TransferService transfers,
+            TransferEvents events,
             HttpContext http,
             CancellationToken ct) =>
         {
-            var result = await transfers.CreateAsync(request, ParseIdempotencyKey(idempotencyKey), ct);
+            var result = Announce(http, events, await transfers.CreateAsync(request, ParseIdempotencyKey(idempotencyKey), ct));
             return result.Replayed
                 ? ToResult(http, result)
                 : Results.Created($"/api/transfers/{result.Transfer.Id}", result.Transfer);
         });
 
-        group.MapPost("/{id:int}/dispatch", async (int id, TransferService transfers, HttpContext http, CancellationToken ct) =>
-            ToResult(http, await transfers.DispatchAsync(id, ct)));
+        group.MapPost("/{id:int}/dispatch", async (int id, TransferService transfers, TransferEvents events, HttpContext http, CancellationToken ct) =>
+            ToResult(http, Announce(http, events, await transfers.DispatchAsync(id, ct))));
 
         // The body is optional: without one, everything sent is received.
-        group.MapPost("/{id:int}/receive", async (int id, ReceiveTransferRequest? request, TransferService transfers, HttpContext http, CancellationToken ct) =>
-            ToResult(http, await transfers.ReceiveAsync(id, request, ct)));
+        group.MapPost("/{id:int}/receive", async (int id, ReceiveTransferRequest? request, TransferService transfers, TransferEvents events, HttpContext http, CancellationToken ct) =>
+            ToResult(http, Announce(http, events, await transfers.ReceiveAsync(id, request, ct))));
 
-        group.MapPost("/{id:int}/cancel", async (int id, TransferService transfers, HttpContext http, CancellationToken ct) =>
-            ToResult(http, await transfers.CancelAsync(id, ct)));
+        group.MapPost("/{id:int}/cancel", async (int id, TransferService transfers, TransferEvents events, HttpContext http, CancellationToken ct) =>
+            ToResult(http, Announce(http, events, await transfers.CancelAsync(id, ct))));
+    }
+
+    /// <summary>Tells every open screen about a committed change, tagged with the client that made it.</summary>
+    private static CommandResult Announce(HttpContext http, TransferEvents events, CommandResult result)
+    {
+        var origin = http.Request.Headers[TransferEvents.ClientIdHeader].ToString();
+        events.Publish(result, origin.Length is > 0 and <= 64 ? origin : null);
+        return result;
     }
 
     private static IResult ToResult(HttpContext http, CommandResult result)

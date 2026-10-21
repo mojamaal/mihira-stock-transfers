@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using MihiraStores.Api.Branches;
 using MihiraStores.Api.Data;
 using MihiraStores.Api.Errors;
+using MihiraStores.Api.Live;
 using MihiraStores.Api.Products;
 using MihiraStores.Api.Stock;
 using MihiraStores.Api.Transfers;
@@ -19,6 +20,7 @@ builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlServer(conn
 builder.Services.AddScoped<TransferService>();
 builder.Services.AddScoped<TransferQueries>();
 builder.Services.AddScoped<StockMover>();
+builder.Services.AddSingleton<TransferEvents>();
 
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
@@ -41,6 +43,7 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 app.MapBranchEndpoints();
 app.MapProductEndpoints();
 app.MapTransferEndpoints();
+app.MapLiveEndpoints();
 
 // Apply migrations and seed on startup so the app runs with no manual database steps.
 await using (var scope = app.Services.CreateAsyncScope())

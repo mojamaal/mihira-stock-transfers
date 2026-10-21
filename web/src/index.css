@@ -130,6 +130,20 @@ button, input, select { font: inherit; color: inherit; }
 
 .column { display: grid; gap: 24px; min-width: 0; }
 
+.live {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px; flex: none;
+  padding: 4px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+  background: var(--fill); color: var(--secondary);
+}
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tertiary); }
+.live-live { background: var(--green-tint); color: var(--green); }
+.live-live .live-dot { background: var(--green); animation: pulse 2s var(--ease) infinite; }
+.live-reconnecting { background: var(--orange-tint); color: var(--orange); }
+.live-reconnecting .live-dot { background: var(--orange); }
+.live-offline { background: var(--red-tint); color: var(--red); }
+.live-offline .live-dot { background: var(--red); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
 /* ---------- Cards ---------- */
 
 .card {

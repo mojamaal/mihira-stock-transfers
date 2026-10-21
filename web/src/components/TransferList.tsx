@@ -29,13 +29,15 @@ type Props = {
   branches: Branch[]
   /** Bumped by the parent after any change, so the list refetches. */
   version: number
+  /** A transfer someone else just changed, briefly highlighted. */
+  highlightId: number | null
   /** `replayed` is true when the action had already been done (e.g. by someone else) and nothing changed. */
   onChanged: (transfer: Transfer, action: TransferAction, replayed: boolean) => void
 }
 
 const PAGE_SIZE = 10
 
-export function TransferList({ branches, version, onChanged }: Props) {
+export function TransferList({ branches, version, highlightId, onChanged }: Props) {
   const [branchId, setBranchId] = useState<number | null>(null)
   const [direction, setDirection] = useState<TransferDirection>('Any')
   const [status, setStatus] = useState<TransferStatus | null>(null)
@@ -196,7 +198,7 @@ export function TransferList({ branches, version, onChanged }: Props) {
               key={t.id}
               transfer={t}
               busyAction={busy[t.id]}
-              highlighted={recentlyUpdated === t.id}
+              highlighted={recentlyUpdated === t.id || highlightId === t.id}
               onAction={(action) => {
                 if (action === 'cancel') setConfirmCancel(t)
                 else if (action === 'receive') openReceive(t)

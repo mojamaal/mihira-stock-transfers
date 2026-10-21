@@ -46,7 +46,12 @@ async function send<T>(path: string, init?: RequestInit): Promise<{ data: T; res
   try {
     response = await fetch(`/api${path}`, {
       ...init,
-      headers: { Accept: 'application/json', ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers },
+      headers: {
+        Accept: 'application/json',
+        'X-Client-Id': CLIENT_ID,
+        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+        ...init?.headers,
+      },
     })
   } catch {
     throw new ApiError(0, 'Connection problem', 'Could not reach the server. Is the API running?')
@@ -117,6 +122,12 @@ export function toApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error
   return new ApiError(0, 'Something went wrong', error instanceof Error ? error.message : 'Please try again.')
 }
+
+/**
+ * Identifies this browser tab. It is sent with every request, and live updates carry the id of the client that
+ * made each change, so this tab can tell its own changes (already shown) from other people's.
+ */
+export const CLIENT_ID = newIdempotencyKey()
 
 /** A v4 UUID. crypto.randomUUID only exists in secure contexts (https or localhost), so fall back when it is missing. */
 export function newIdempotencyKey(): string {
