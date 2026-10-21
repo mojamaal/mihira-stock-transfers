@@ -104,13 +104,21 @@ public sealed class TransferService(AppDbContext db, TransferQueries queries, St
         var transfer = await LoadWithLinesAsync(id, ct);
         var receivedByProduct = TransferValidation.ValidateReceive(transfer, request); // throwing leaves it Dispatched
 
+        var note = string.IsNullOrWhiteSpace(request?.Note) ? null : request.Note.Trim();
+        if (note is not null)
+        {
+            await db.Transfers.Where(t => t.Id == id).ExecuteUpdateAsync(s => s.SetProperty(t => t.ReceiptNote, note), ct);
+        }
+
         foreach (var line in transfer.Lines)
         {
-            var received = receivedByProduct.GetValueOrDefault(line.ProductId, line.Quantity);
+            var received = receivedByProduct.GetValueOrDefault(line.ProductId, new ReceivedLine(line.Quantity, null));
             await db.TransferLines
                 .Where(l => l.Id == line.Id)
-                .ExecuteUpdateAsync(s => s.SetProperty(l => l.QuantityReceived, received), ct);
-            await stock.AddAsync(transfer.ToBranchId, line.ProductId, received, ct);
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(l => l.QuantityReceived, received.Quantity)
+                    .SetProperty(l => l.ShortfallReason, received.Reason), ct);
+            await stock.AddAsync(transfer.ToBranchId, line.ProductId, received.Quantity, ct);
         }
 
         return new CommandResult(await queries.GetAsync(id, ct), Replayed: false);

@@ -22,12 +22,16 @@ export const TRANSFER_STATUSES: TransferStatus[] = ['Requested', 'Dispatched', '
 
 export type TransferAction = 'dispatch' | 'receive' | 'cancel'
 
+export type ShortfallReason = 'Damaged' | 'Missing' | 'Other'
+
 export type TransferLine = {
   productId: number
   sku: string
   productName: string
   quantity: number
   quantityReceived: number | null
+  /** Why less arrived than was sent; set only when something is short. */
+  shortfallReason: ShortfallReason | null
 }
 
 export type Transfer = {
@@ -39,6 +43,7 @@ export type Transfer = {
   dispatchedAt: string | null
   receivedAt: string | null
   cancelledAt: string | null
+  receiptNote: string | null
   lines: TransferLine[]
   /** Decided by the server's state machine; the UI never works this out itself. */
   allowedActions: TransferAction[]

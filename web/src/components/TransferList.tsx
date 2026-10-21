@@ -6,6 +6,7 @@ import {
   type Transfer,
   type TransferAction,
   type TransferDirection,
+  type ShortfallReason,
   type TransferPage,
   type TransferStatus,
 } from '../types'
@@ -45,7 +46,7 @@ export function TransferList({ branches, version, onChanged }: Props) {
   const [actionError, setActionError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState<Record<number, TransferAction>>({})
   const [confirmCancel, setConfirmCancel] = useState<Transfer | null>(null)
-  const [receiving, setReceiving] = useState<{ transfer: Transfer; quantities: Record<number, string> } | null>(null)
+  const [receiving, setReceiving] = useState<Transfer | null>(null)
   const [reloadTick, setReloadTick] = useState(0)
   const [recentlyUpdated, setRecentlyUpdated] = useState<number | null>(null)
 
@@ -83,9 +84,7 @@ export function TransferList({ branches, version, onChanged }: Props) {
     status: (s: TransferStatus | null) => { setStatus(s); setPage(1) },
   }
 
-  function openReceive(transfer: Transfer) {
-    setReceiving({ transfer, quantities: Object.fromEntries(transfer.lines.map((l) => [l.productId, String(l.quantity)])) })
-  }
+  const openReceive = (transfer: Transfer) => setReceiving(transfer)
 
   async function run(transfer: Transfer, action: TransferAction, body?: unknown) {
     if (inFlight.current.has(transfer.id)) return
@@ -240,12 +239,11 @@ export function TransferList({ branches, version, onChanged }: Props) {
       />
 
       <ReceiveSheet
-        state={receiving}
-        onChange={(productId, value) =>
-          setReceiving((r) => r && { ...r, quantities: { ...r.quantities, [productId]: value } })}
+        key={receiving?.id ?? 'none'}
+        transfer={receiving}
         onClose={() => setReceiving(null)}
-        onConfirm={(lines) => {
-          if (receiving) void run(receiving.transfer, 'receive', { lines })
+        onConfirm={(body) => {
+          if (receiving) void run(receiving, 'receive', body)
           setReceiving(null)
         }}
       />
@@ -253,57 +251,103 @@ export function TransferList({ branches, version, onChanged }: Props) {
   )
 }
 
-type ReceiveSheetProps = {
-  state: { transfer: Transfer; quantities: Record<number, string> } | null
-  onChange: (productId: number, value: string) => void
-  onClose: () => void
-  onConfirm: (lines: { productId: number; quantityReceived: number }[]) => void
+export type ReceiveBody = {
+  lines: { productId: number; quantityReceived: number; reason: ShortfallReason | null }[]
+  note: string | null
 }
 
-/** Confirms what actually arrived. Prefilled with everything sent; lowering a figure records a shortfall. */
-function ReceiveSheet({ state, onChange, onClose, onConfirm }: ReceiveSheetProps) {
-  const lines = state?.transfer.lines ?? []
+const REASONS: { value: ShortfallReason; label: string }[] = [
+  { value: 'Damaged', label: 'Damaged' },
+  { value: 'Missing', label: 'Missing' },
+  { value: 'Other', label: 'Other' },
+]
+
+/**
+ * Confirms what actually arrived. Prefilled with everything sent, so a full receipt is one tap. Lowering a
+ * figure records a shortfall, which must say why (and "Other" must be explained in the note).
+ */
+function ReceiveSheet({ transfer, onClose, onConfirm }: {
+  transfer: Transfer | null
+  onClose: () => void
+  onConfirm: (body: ReceiveBody) => void
+}) {
+  const lines = transfer?.lines ?? []
+  const [quantities, setQuantities] = useState<Record<number, string>>(() =>
+    Object.fromEntries(lines.map((l) => [l.productId, String(l.quantity)])))
+  const [reasons, setReasons] = useState<Record<number, ShortfallReason | null>>({})
+  const [note, setNote] = useState('')
+
   const parsed = lines.map((l) => {
-    const text = state?.quantities[l.productId] ?? ''
+    const text = quantities[l.productId] ?? ''
     const value = /^\d+$/.test(text.trim()) ? Number(text) : null
-    return { line: l, value, valid: value !== null && value <= l.quantity }
+    const short = value !== null && value < l.quantity ? l.quantity - value : 0
+    const reason = short > 0 ? reasons[l.productId] ?? null : null
+    return { line: l, value, short, reason, valid: value !== null && value <= l.quantity && (short === 0 || reason !== null) }
   })
-  const allValid = parsed.every((p) => p.valid)
+  const needsNote = parsed.some((p) => p.reason === 'Other')
+  const noteMissing = needsNote && note.trim() === ''
+  const canConfirm = parsed.every((p) => p.valid) && !noteMissing
 
   return (
     <Sheet
-      open={state !== null}
-      title={`Receive transfer #${state?.transfer.id ?? ''}`}
-      message={state && `Confirm what arrived at ${state.transfer.toBranch.name}. Lower a quantity if goods were damaged or missing.`}
+      open={transfer !== null}
+      title={`Receive transfer #${transfer?.id ?? ''}`}
+      message={transfer && `Confirm what arrived at ${transfer.toBranch.name}. Lower a quantity if goods were damaged or missing.`}
       confirmLabel="Receive"
       cancelLabel="Not now"
-      confirmDisabled={!allValid}
+      confirmDisabled={!canConfirm}
       onClose={onClose}
-      onConfirm={() => onConfirm(parsed.map((p) => ({ productId: p.line.productId, quantityReceived: p.value ?? 0 })))}
+      onConfirm={() => onConfirm({
+        lines: parsed.map((p) => ({ productId: p.line.productId, quantityReceived: p.value ?? 0, reason: p.reason })),
+        note: note.trim() === '' ? null : note.trim(),
+      })}
     >
       <ul className="receive-lines">
-        {parsed.map(({ line, value, valid }) => (
-          <li key={line.productId} className="receive-line">
-            <label htmlFor={`recv-${line.productId}`}>
-              {line.productName}
-              <span className="receive-sent">Sent {line.quantity}</span>
-            </label>
-            <Stepper
-              id={`recv-${line.productId}`}
-              label={`Received quantity of ${line.productName}`}
-              value={state?.quantities[line.productId] ?? ''}
-              onChange={(v) => onChange(line.productId, v)}
-              min={0}
-              max={line.quantity}
-              invalid={!valid}
-            />
-            {!valid && <span className="receive-note error">Enter 0 to {line.quantity}.</span>}
-            {valid && value !== null && value < line.quantity && (
-              <span className="receive-note">{line.quantity - value} short. This will be recorded on the transfer.</span>
-            )}
-          </li>
-        ))}
+        {parsed.map(({ line, value, short, reason }) => {
+          const outOfRange = value === null || value > line.quantity
+          return (
+            <li key={line.productId} className="receive-line">
+              <label htmlFor={`recv-${line.productId}`}>
+                {line.productName}
+                <span className="receive-sent">Sent {line.quantity}</span>
+              </label>
+              <Stepper
+                id={`recv-${line.productId}`}
+                label={`Received quantity of ${line.productName}`}
+                value={quantities[line.productId] ?? ''}
+                onChange={(v) => setQuantities((q) => ({ ...q, [line.productId]: v }))}
+                min={0}
+                max={line.quantity}
+                invalid={outOfRange}
+              />
+              {outOfRange && <span className="receive-note error">Enter 0 to {line.quantity}.</span>}
+              {short > 0 && (
+                <div className="receive-reason">
+                  <span className="receive-note">{short} short. Why?</span>
+                  <Segmented
+                    label={`Why ${line.productName} is short`}
+                    value={reason}
+                    onChange={(r) => setReasons((all) => ({ ...all, [line.productId]: r }))}
+                    options={REASONS}
+                  />
+                </div>
+              )}
+            </li>
+          )
+        })}
       </ul>
+
+      <label className="field receive-note-field">
+        <span className="field-label">Note {needsNote ? '(required for "Other")' : '(optional)'}</span>
+        <textarea
+          className={`input textarea${noteMissing ? ' is-invalid' : ''}`}
+          rows={2}
+          maxLength={500}
+          value={note}
+          placeholder="e.g. Two bags split in transit"
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </label>
     </Sheet>
   )
 }
@@ -334,7 +378,7 @@ function TransferRow({ transfer: t, busyAction, highlighted, onAction }: RowProp
           return (
             <span key={l.productId} className="chip" title={l.sku}>
               {l.productName} <span className="chip-qty">× {l.quantity}</span>
-              {short > 0 && <span className="chip-short">· {short} short</span>}
+              {short > 0 && <span className="chip-short">· {short} short ({l.shortfallReason?.toLowerCase()})</span>}
             </span>
           )
         })}
@@ -346,6 +390,7 @@ function TransferRow({ transfer: t, busyAction, highlighted, onAction }: RowProp
           {t.dispatchedAt && <li>Dispatched <strong>{formatDate(t.dispatchedAt)}</strong></li>}
           {t.receivedAt && <li>Received <strong>{formatDate(t.receivedAt)}</strong></li>}
           {t.cancelledAt && <li>Cancelled <strong>{formatDate(t.cancelledAt)}</strong></li>}
+          {t.receiptNote && <li className="timeline-note">“{t.receiptNote}”</li>}
         </ul>
 
         {actions.length > 0 && (

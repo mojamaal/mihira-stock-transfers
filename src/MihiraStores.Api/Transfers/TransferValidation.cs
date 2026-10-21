@@ -7,6 +7,8 @@ namespace MihiraStores.Api.Transfers;
 
 public readonly record struct ValidLine(int ProductId, int Quantity);
 
+public readonly record struct ReceivedLine(int Quantity, ShortfallReason? Reason);
+
 public static class TransferValidation
 {
     public const int MaxLines = 50;
@@ -75,12 +77,23 @@ public static class TransferValidation
         return lines.Select(l => new ValidLine(l.ProductId!.Value, l.Quantity!.Value)).ToList();
     }
 
-    /// <summary>Checks a partial-receipt body against what was sent. Products left out count as fully received.</summary>
-    public static Dictionary<int, int> ValidateReceive(Transfer transfer, ReceiveTransferRequest? request)
+    public const int MaxNoteLength = 500;
+
+    /// <summary>
+    /// Checks a receipt against what was sent. Products left out count as fully received. Anything short must say
+    /// why, and "Other" must be explained in the note, so every write-off can be accounted for.
+    /// </summary>
+    public static Dictionary<int, ReceivedLine> ValidateReceive(Transfer transfer, ReceiveTransferRequest? request)
     {
-        var result = new Dictionary<int, int>();
+        var result = new Dictionary<int, ReceivedLine>();
         var errors = new Dictionary<string, string[]>();
         var lines = request?.Lines ?? [];
+        var note = request?.Note?.Trim();
+
+        if (note?.Length > MaxNoteLength)
+        {
+            errors["note"] = [$"The note can be at most {MaxNoteLength} characters."];
+        }
 
         for (var i = 0; i < lines.Count; i++)
         {
@@ -99,9 +112,18 @@ public static class TransferValidation
             {
                 errors[$"lines[{i}].quantityReceived"] = [$"Received quantity must be between 0 and the {sent.Quantity} sent."];
             }
+            else if (received < sent.Quantity && line.Reason is null)
+            {
+                errors[$"lines[{i}].reason"] = [$"Say why {sent.Quantity - received} are short: Damaged, Missing or Other."];
+            }
+            else if (line.Reason == ShortfallReason.Other && string.IsNullOrEmpty(note))
+            {
+                errors["note"] = ["Add a note explaining the \"Other\" shortfall."];
+            }
             else
             {
-                result[sent.ProductId] = received;
+                // A reason only makes sense when something is short; ignore one sent with a full receipt.
+                result[sent.ProductId] = new ReceivedLine(received, received < sent.Quantity ? line.Reason : null);
             }
         }
 

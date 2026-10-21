@@ -14,4 +14,15 @@ public class TransferLine
 
     /// <summary>Quantity that actually arrived. Null until the transfer is received.</summary>
     public int? QuantityReceived { get; set; }
+
+    /// <summary>Why less arrived than was sent. Set exactly when <see cref="QuantityReceived"/> is below <see cref="Quantity"/>.</summary>
+    public ShortfallReason? ShortfallReason { get; set; }
+}
+
+/// <summary>Why part of a transfer did not arrive. The shortfall is written off; it does not return to the sender.</summary>
+public enum ShortfallReason
+{
+    Damaged,
+    Missing,
+    Other,
 }

@@ -23,5 +23,8 @@ public class Transfer
     public DateTimeOffset? ReceivedAt { get; set; }
     public DateTimeOffset? CancelledAt { get; set; }
 
+    /// <summary>Optional note from the receiving branch, e.g. what happened to missing goods.</summary>
+    public string? ReceiptNote { get; set; }
+
     public List<TransferLine> Lines { get; set; } = [];
 }

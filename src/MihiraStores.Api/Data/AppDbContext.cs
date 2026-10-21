@@ -39,6 +39,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             t.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             t.Property(x => x.IdempotencyRequestHash).HasMaxLength(64).IsFixedLength().IsUnicode(false);
+            t.Property(x => x.ReceiptNote).HasMaxLength(500);
             t.ToTable(tb => tb.HasCheckConstraint("CK_Transfers_DifferentBranches", "[FromBranchId] <> [ToBranchId]"));
             t.HasOne(x => x.FromBranch).WithMany().HasForeignKey(x => x.FromBranchId).OnDelete(DeleteBehavior.Restrict);
             t.HasOne(x => x.ToBranch).WithMany().HasForeignKey(x => x.ToBranchId).OnDelete(DeleteBehavior.Restrict);
@@ -56,7 +57,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 tb.HasCheckConstraint("CK_TransferLines_Quantity_Positive", "[Quantity] > 0");
                 tb.HasCheckConstraint("CK_TransferLines_QuantityReceived_Range",
                     "[QuantityReceived] IS NULL OR ([QuantityReceived] >= 0 AND [QuantityReceived] <= [Quantity])");
+                // A reason is recorded exactly when something is short.
+                tb.HasCheckConstraint("CK_TransferLines_ShortfallReason",
+                    "([QuantityReceived] IS NULL AND [ShortfallReason] IS NULL) OR " +
+                    "([QuantityReceived] = [Quantity] AND [ShortfallReason] IS NULL) OR " +
+                    "([QuantityReceived] < [Quantity] AND [ShortfallReason] IS NOT NULL)");
             });
+            l.Property(x => x.ShortfallReason).HasConversion<string>().HasMaxLength(20);
             l.HasOne(x => x.Product).WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
             l.HasIndex(x => new { x.TransferId, x.ProductId }).IsUnique();
         });

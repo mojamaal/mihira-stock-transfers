@@ -168,18 +168,38 @@ public sealed class TransferLifecycleTests(ApiFactory factory) : ApiTestBase(fac
 
         // 3 bags of rice arrived damaged; tea is left out of the body, so it counts as fully received.
         var response = await Client.PostAsJsonAsync($"/api/transfers/{id}/receive",
-            new { lines = new[] { new { productId = Rice, quantityReceived = 7 } } });
+            new { lines = new[] { new { productId = Rice, quantityReceived = 7, reason = "Damaged" } }, note = "Bags split in the van" });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var transfer = await ReadTransfer(response);
         Assert.Equal(TransferStatus.Received, transfer.Status);
+        Assert.Equal("Bags split in the van", transfer.ReceiptNote);
         var rice = transfer.Lines.Single(l => l.ProductId == Rice);
-        Assert.Equal((10, 7), (rice.Quantity, rice.QuantityReceived));
-        Assert.Equal(4, transfer.Lines.Single(l => l.ProductId == Tea).QuantityReceived);
+        Assert.Equal((10, 7, ShortfallReason.Damaged), (rice.Quantity, rice.QuantityReceived, rice.ShortfallReason));
+        var tea = transfer.Lines.Single(l => l.ProductId == Tea);
+        Assert.Equal((4, (ShortfallReason?)null), (tea.QuantityReceived, tea.ShortfallReason));
 
         Assert.Equal(15 + 7, await StockOf(Kandy, Rice));
         Assert.Equal(18 + 4, await StockOf(Kandy, Tea));
         Assert.Equal(40 - 10, await StockOf(Colombo, Rice)); // the sender still lost all 10
+    }
+
+    [Fact]
+    public async Task A_short_receipt_must_say_why()
+    {
+        var id = await CreateTransfer(Colombo, Kandy, (Rice, 10));
+        await Act(id, "dispatch");
+
+        var noReason = await Client.PostAsJsonAsync($"/api/transfers/{id}/receive",
+            new { lines = new[] { new { productId = Rice, quantityReceived = 7 } } });
+        var otherWithoutNote = await Client.PostAsJsonAsync($"/api/transfers/{id}/receive",
+            new { lines = new[] { new { productId = Rice, quantityReceived = 7, reason = "Other" } } });
+
+        Assert.Equal(HttpStatusCode.BadRequest, noReason.StatusCode);
+        Assert.Contains("Say why 3 are short", (await ReadProblem(noReason)).Detail);
+        Assert.Equal(HttpStatusCode.BadRequest, otherWithoutNote.StatusCode);
+        Assert.Equal(TransferStatus.Dispatched, await StatusOf(id));
+        Assert.Equal(15, await StockOf(Kandy, Rice));
     }
 
     [Fact]

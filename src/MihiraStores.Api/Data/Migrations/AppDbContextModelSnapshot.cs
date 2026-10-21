@@ -122,6 +122,10 @@ namespace MihiraStores.Api.Data.Migrations
                         .HasColumnType("char(64)")
                         .IsFixedLength();
 
+                    b.Property<string>("ReceiptNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<DateTimeOffset?>("ReceivedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -168,6 +172,10 @@ namespace MihiraStores.Api.Data.Migrations
                     b.Property<int?>("QuantityReceived")
                         .HasColumnType("int");
 
+                    b.Property<string>("ShortfallReason")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<int>("TransferId")
                         .HasColumnType("int");
 
@@ -183,6 +191,8 @@ namespace MihiraStores.Api.Data.Migrations
                             t.HasCheckConstraint("CK_TransferLines_QuantityReceived_Range", "[QuantityReceived] IS NULL OR ([QuantityReceived] >= 0 AND [QuantityReceived] <= [Quantity])");
 
                             t.HasCheckConstraint("CK_TransferLines_Quantity_Positive", "[Quantity] > 0");
+
+                            t.HasCheckConstraint("CK_TransferLines_ShortfallReason", "([QuantityReceived] IS NULL AND [ShortfallReason] IS NULL) OR ([QuantityReceived] = [Quantity] AND [ShortfallReason] IS NULL) OR ([QuantityReceived] < [Quantity] AND [ShortfallReason] IS NOT NULL)");
                         });
                 });
 

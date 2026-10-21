@@ -8,13 +8,15 @@ public sealed record CreateTransferRequest(int? FromBranchId, int? ToBranchId, L
 public sealed record CreateTransferLine(int? ProductId, int? Quantity);
 
 /// <summary>Optional body for receive. Products left out are treated as fully received.</summary>
-public sealed record ReceiveTransferRequest(List<ReceiveLine>? Lines);
+public sealed record ReceiveTransferRequest(List<ReceiveLine>? Lines, string? Note);
 
-public sealed record ReceiveLine(int? ProductId, int? QuantityReceived);
+/// <param name="Reason">Required when <paramref name="QuantityReceived"/> is less than was sent.</param>
+public sealed record ReceiveLine(int? ProductId, int? QuantityReceived, ShortfallReason? Reason);
 
 public sealed record BranchRef(int Id, string Name);
 
-public sealed record TransferLineDto(int ProductId, string Sku, string ProductName, int Quantity, int? QuantityReceived);
+public sealed record TransferLineDto(
+    int ProductId, string Sku, string ProductName, int Quantity, int? QuantityReceived, ShortfallReason? ShortfallReason);
 
 public sealed record TransferDto(
     int Id,
@@ -25,6 +27,7 @@ public sealed record TransferDto(
     DateTimeOffset? DispatchedAt,
     DateTimeOffset? ReceivedAt,
     DateTimeOffset? CancelledAt,
+    string? ReceiptNote,
     IReadOnlyList<TransferLineDto> Lines,
     IReadOnlyList<string> AllowedActions)
 {
@@ -37,9 +40,10 @@ public sealed record TransferDto(
         t.DispatchedAt,
         t.ReceivedAt,
         t.CancelledAt,
+        t.ReceiptNote,
         t.Lines
             .OrderBy(l => l.Product.Name)
-            .Select(l => new TransferLineDto(l.ProductId, l.Product.Sku, l.Product.Name, l.Quantity, l.QuantityReceived))
+            .Select(l => new TransferLineDto(l.ProductId, l.Product.Sku, l.Product.Name, l.Quantity, l.QuantityReceived, l.ShortfallReason))
             .ToList(),
         TransferWorkflow.AllowedActions(t.Status).Select(a => a.ToString().ToLowerInvariant()).ToList());
 }

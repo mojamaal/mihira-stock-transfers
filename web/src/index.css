@@ -404,6 +404,10 @@ button, input, select { font: inherit; color: inherit; }
 .receive-line .stepper { background: var(--fill); }
 .receive-note { grid-column: 1 / -1; font-size: 12.5px; color: var(--orange); }
 .receive-note.error { color: var(--red); }
+.receive-reason { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.receive-note-field { margin-top: 16px; }
+.textarea { height: auto; padding: 8px 12px; resize: vertical; min-height: 56px; line-height: 1.4; }
+.timeline-note { flex-basis: 100%; font-style: italic; }
 .receive-sent { display: block; font-size: 12.5px; color: var(--secondary); }
 
 @media (max-width: 520px) {
