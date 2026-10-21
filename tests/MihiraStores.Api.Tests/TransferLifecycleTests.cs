@@ -68,7 +68,7 @@ public sealed class TransferLifecycleTests(ApiFactory factory) : ApiTestBase(fac
     [Fact]
     public async Task Dispatch_that_would_make_stock_negative_is_rejected_and_nothing_moves()
     {
-        // Rice has enough (2 of 2); Coconut Oil does not (0 of 5). The Rice line must be rolled back too.
+        // Rice has enough (2 of 2); Coconut Oil does not (3 of 5). The Rice line must be rolled back too.
         var id = await CreateTransfer(Galle, Colombo, (Rice, 2), (CoconutOil, 5));
 
         var response = await Act(id, "dispatch");
@@ -76,11 +76,11 @@ public sealed class TransferLifecycleTests(ApiFactory factory) : ApiTestBase(fac
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         var problem = await ReadProblem(response);
         Assert.Contains("not enough stock at Galle", problem.Detail);
-        Assert.Contains("Coconut Oil 1L (COCO-OIL-1L): 0 available, 5 needed", problem.Detail);
+        Assert.Contains("Coconut Oil 1L (COCO-OIL-1L): 3 available, 5 needed", problem.Detail);
         Assert.DoesNotContain("Rice", problem.Detail);
 
         Assert.Equal(2, await StockOf(Galle, Rice));
-        Assert.Equal(0, await StockOf(Galle, CoconutOil));
+        Assert.Equal(3, await StockOf(Galle, CoconutOil));
         Assert.Equal(TransferStatus.Requested, await StatusOf(id));
     }
 

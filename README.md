@@ -145,10 +145,12 @@ Created on first startup when the database is empty, with an opening entry in th
 |---|---:|---:|---:|---:|---:|
 | Central Warehouse | 500 | 400 | 300 | 250 | 450 |
 | Colombo | 40 | 25 | 12 | 30 | 20 |
-| Kandy | 15 | 8 | 0 | 18 | 10 |
-| Galle | 2 | 10 | 0 | 6 | 0 |
+| Kandy | 15 | 8 | 6 | 18 | 10 |
+| Galle | 2 | 10 | 3 | 6 | 4 |
 
-To see the "not enough stock" rule straight away, request Coconut Oil from Galle and dispatch it.
+Every location starts with stock of every product. Galle is deliberately low, so to see the "not enough stock" rule
+straight away, request 5 Coconut Oil from Galle and dispatch it. Stock may go down to exactly zero (the brief only
+forbids going *below* zero), so dispatching all of a branch's stock is allowed.
 
 ---
 

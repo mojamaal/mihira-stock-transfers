@@ -6,14 +6,15 @@ namespace MihiraStores.Api.Data;
 /// <summary>Creates the warehouse, three branches, five products and starting stock on an empty database.</summary>
 public static class DbSeeder
 {
-    // Starting stock per branch, in the same order as Products below:
+    // Starting stock per branch, in the same order as Products below. Every figure starts above zero; Galle is
+    // deliberately low (2 Rice, 3 Coconut Oil) so the "not enough stock" rule is easy to see.
     //                                         Rice  Dhal  Oil  Tea  Sugar
     private static readonly (string Branch, bool IsWarehouse, int[] Stock)[] Branches =
     [
         ("Central Warehouse", true, [500, 400, 300, 250, 450]),
         ("Colombo", false, [40, 25, 12, 30, 20]),
-        ("Kandy", false, [15, 8, 0, 18, 10]),
-        ("Galle", false, [2, 10, 0, 6, 0]),
+        ("Kandy", false, [15, 8, 6, 18, 10]),
+        ("Galle", false, [2, 10, 3, 6, 4]),
     ];
 
     private static readonly (string Sku, string Name)[] Products =

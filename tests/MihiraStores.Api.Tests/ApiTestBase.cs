@@ -21,7 +21,7 @@ public abstract class ApiTestBase(ApiFactory factory) : IAsyncLifetime
     protected ApiFactory Factory { get; } = factory;
     protected HttpClient Client { get; } = factory.CreateClient();
 
-    // Seeded stock used by the tests (see DbSeeder): Colombo has 40 Rice and 30 Tea; Galle has 2 Rice and 0 Coconut Oil.
+    // Seeded stock used by the tests (see DbSeeder): Colombo has 40 Rice and 30 Tea; Galle has 2 Rice and 3 Coconut Oil.
     protected int Warehouse => Factory.BranchIds["Central Warehouse"];
     protected int Colombo => Factory.BranchIds["Colombo"];
     protected int Kandy => Factory.BranchIds["Kandy"];
