@@ -38,6 +38,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         model.Entity<Transfer>(t =>
         {
             t.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            t.Property(x => x.IdempotencyRequestHash).HasMaxLength(64).IsFixedLength().IsUnicode(false);
             t.ToTable(tb => tb.HasCheckConstraint("CK_Transfers_DifferentBranches", "[FromBranchId] <> [ToBranchId]"));
             t.HasOne(x => x.FromBranch).WithMany().HasForeignKey(x => x.FromBranchId).OnDelete(DeleteBehavior.Restrict);
             t.HasOne(x => x.ToBranch).WithMany().HasForeignKey(x => x.ToBranchId).OnDelete(DeleteBehavior.Restrict);

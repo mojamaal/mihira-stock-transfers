@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using MihiraStores.Api.Data;
 using MihiraStores.Api.Domain;
 using MihiraStores.Api.Errors;
@@ -18,9 +20,10 @@ public sealed class TransferService(AppDbContext db, TransferQueries queries, St
     /// </summary>
     public async Task<CommandResult> CreateAsync(CreateTransferRequest request, Guid? idempotencyKey, CancellationToken ct)
     {
-        if (idempotencyKey is Guid key && await FindIdByKeyAsync(key, ct) is int existingId)
+        var requestHash = idempotencyKey is null ? null : RequestHash(request);
+        if (idempotencyKey is Guid key && await FindByKeyAsync(key, ct) is { } existing)
         {
-            return new(await queries.GetAsync(existingId, ct), Replayed: true);
+            return await ReplayCreateAsync(existing, requestHash!, ct);
         }
 
         var lines = await TransferValidation.ValidateCreateAsync(db, request, ct);
@@ -31,6 +34,7 @@ public sealed class TransferService(AppDbContext db, TransferQueries queries, St
             ToBranchId = request.ToBranchId!.Value,
             Status = TransferStatus.Requested,
             IdempotencyKey = idempotencyKey,
+            IdempotencyRequestHash = requestHash,
             CreatedAt = DateTimeOffset.UtcNow,
             Lines = lines.Select(l => new TransferLine { ProductId = l.ProductId, Quantity = l.Quantity }).ToList(),
         };
@@ -44,9 +48,9 @@ public sealed class TransferService(AppDbContext db, TransferQueries queries, St
         {
             // Two identical requests raced past the lookup above; the unique index let only one in.
             db.ChangeTracker.Clear();
-            var winnerId = await FindIdByKeyAsync(idempotencyKey.Value, ct)
+            var winner = await FindByKeyAsync(idempotencyKey.Value, ct)
                 ?? throw new InvalidOperationException("Idempotency key conflict without a stored transfer.", ex);
-            return new(await queries.GetAsync(winnerId, ct), Replayed: true);
+            return await ReplayCreateAsync(winner, requestHash!, ct);
         }
 
         return new(await queries.GetAsync(transfer.Id, ct), Replayed: false);
@@ -206,9 +210,38 @@ public sealed class TransferService(AppDbContext db, TransferQueries queries, St
             $"Cannot dispatch transfer #{transferId}: not enough stock at {branchName}. {string.Join("; ", details)}.");
     }
 
-    private Task<int?> FindIdByKeyAsync(Guid key, CancellationToken ct) =>
+    private sealed record KeyedTransfer(int Id, string? RequestHash);
+
+    private Task<KeyedTransfer?> FindByKeyAsync(Guid key, CancellationToken ct) =>
         db.Transfers.AsNoTracking()
             .Where(t => t.IdempotencyKey == key)
-            .Select(t => (int?)t.Id)
+            .Select(t => new KeyedTransfer(t.Id, t.IdempotencyRequestHash))
             .SingleOrDefaultAsync(ct);
+
+    /// <summary>A key seen before: the same request is a harmless repeat; a different request is a client bug, so refuse it.</summary>
+    private async Task<CommandResult> ReplayCreateAsync(KeyedTransfer existing, string requestHash, CancellationToken ct)
+    {
+        if (existing.RequestHash != requestHash)
+        {
+            throw AppException.Unprocessable(
+                "Idempotency key already used",
+                $"This Idempotency-Key was already used to create transfer #{existing.Id} with different details. " +
+                "Use a new key for a new request.");
+        }
+
+        return new CommandResult(await queries.GetAsync(existing.Id, ct), Replayed: true);
+    }
+
+    /// <summary>
+    /// A fingerprint of what was asked for. Line order doesn't change the meaning of a request, so lines are sorted;
+    /// anything else that differs (branches, products, quantities) gives a different hash.
+    /// </summary>
+    private static string RequestHash(CreateTransferRequest request)
+    {
+        var lines = (request.Lines ?? [])
+            .Select(l => $"{l?.ProductId?.ToString() ?? "-"}:{l?.Quantity?.ToString() ?? "-"}")
+            .Order(StringComparer.Ordinal);
+        var canonical = $"from={request.FromBranchId};to={request.ToBranchId};lines={string.Join(',', lines)}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
+    }
 }

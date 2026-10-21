@@ -116,6 +116,12 @@ namespace MihiraStores.Api.Data.Migrations
                     b.Property<Guid?>("IdempotencyKey")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("IdempotencyRequestHash")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("char(64)")
+                        .IsFixedLength();
+
                     b.Property<DateTimeOffset?>("ReceivedAt")
                         .HasColumnType("datetimeoffset");
 

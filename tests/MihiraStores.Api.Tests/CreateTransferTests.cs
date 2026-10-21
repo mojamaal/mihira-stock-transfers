@@ -121,6 +121,33 @@ public sealed class CreateTransferTests(ApiFactory factory) : ApiTestBase(factor
     }
 
     [Fact]
+    public async Task Reusing_an_idempotency_key_for_a_different_request_is_refused()
+    {
+        var key = Guid.NewGuid();
+        var first = await PostCreate(new { fromBranchId = Colombo, toBranchId = Kandy, lines = new[] { new { productId = Rice, quantity = 5 } } }, key);
+
+        var different = await PostCreate(new { fromBranchId = Colombo, toBranchId = Kandy, lines = new[] { new { productId = Rice, quantity = 50 } } }, key);
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, different.StatusCode);
+        Assert.Contains($"already used to create transfer #{(await ReadTransfer(first)).Id}", (await ReadProblem(different)).Detail);
+        Assert.Equal(1, await TransferCount());
+    }
+
+    [Fact]
+    public async Task The_same_lines_in_a_different_order_count_as_the_same_request()
+    {
+        var key = Guid.NewGuid();
+        await PostCreate(new { fromBranchId = Colombo, toBranchId = Kandy, lines = new[] { new { productId = Rice, quantity = 5 }, new { productId = Tea, quantity = 2 } } }, key);
+
+        var reordered = await PostCreate(new { fromBranchId = Colombo, toBranchId = Kandy, lines = new[] { new { productId = Tea, quantity = 2 }, new { productId = Rice, quantity = 5 } } }, key);
+
+        Assert.Equal(HttpStatusCode.OK, reordered.StatusCode);
+        Assert.True(IsReplay(reordered));
+        Assert.Equal(1, await TransferCount());
+    }
+
+    [Fact]
     public async Task A_malformed_idempotency_key_is_rejected()
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/transfers")

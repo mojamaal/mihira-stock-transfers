@@ -24,6 +24,9 @@ public sealed class AppException : Exception
     public static AppException Conflict(string detail) =>
         new(StatusCodes.Status409Conflict, "Not allowed", detail);
 
+    public static AppException Unprocessable(string title, string detail) =>
+        new(StatusCodes.Status422UnprocessableEntity, title, detail);
+
     public static AppException Validation(IDictionary<string, string[]> errors) =>
         new(StatusCodes.Status400BadRequest, "The request is not valid",
             string.Join(" ", errors.Values.SelectMany(v => v)), errors);

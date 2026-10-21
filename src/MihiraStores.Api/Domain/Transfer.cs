@@ -15,6 +15,9 @@ public class Transfer
     /// <summary>Client-supplied key that makes "create" safe to retry (double-click, network retry).</summary>
     public Guid? IdempotencyKey { get; set; }
 
+    /// <summary>SHA-256 of the request the key was first used with, so a key reused for a different request is refused.</summary>
+    public string? IdempotencyRequestHash { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? DispatchedAt { get; set; }
     public DateTimeOffset? ReceivedAt { get; set; }
