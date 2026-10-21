@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ApiError, api, newIdempotencyKey, toApiError } from '../api'
-import type { Branch, Product, Transfer } from '../types'
+import type { Branch, Product, StockItem, Transfer } from '../types'
 import { Close, Plus, Swap } from './icons'
 import { ErrorBanner, Stepper } from './ui'
 
@@ -32,7 +32,7 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
   const [lines, setLines] = useState<LineDraft[]>(() => [emptyLine()])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
-  const [stock, setStock] = useState<{ branchId: number; byProduct: Map<number, number> } | null>(null)
+  const [stock, setStock] = useState<{ branchId: number; byProduct: Map<number, StockItem> } | null>(null)
 
   // One key per distinct form content: retrying the same request (double-click, lost response) reuses it,
   // so the server returns the original transfer; any edit makes it a new request with a new key.
@@ -47,7 +47,7 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
     let ignore = false
     api.stock(fromId)
       .then((items) => {
-        if (!ignore) setStock({ branchId: fromId, byProduct: new Map(items.map((i) => [i.productId, i.quantity])) })
+        if (!ignore) setStock({ branchId: fromId, byProduct: new Map(items.map((i) => [i.productId, i])) })
       })
       .catch(() => {
         // The hint is only a guide; the server checks stock at dispatch, so a failed lookup just hides it.
@@ -191,8 +191,11 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
           {lines.map((line, index) => {
             const quantity = parseQuantity(line.quantity)
             const qtyInvalid = line.quantity.trim() !== '' && quantity === null
-            const onHand = line.productId !== null ? available?.get(line.productId) : undefined
-            const over = onHand !== undefined && quantity !== null && quantity > onHand
+            const item = line.productId !== null ? available?.get(line.productId) : undefined
+            // Nothing is reserved at request time, so other open requests from this branch compete for the same stock.
+            const free = item ? item.onHand - item.requestedOut : 0
+            const overOnHand = item !== undefined && quantity !== null && quantity > item.onHand
+            const overFree = item !== undefined && quantity !== null && !overOnHand && quantity > free
             const serverQtyError = fieldError(`lines[${index}].quantity`)
             const serverProductError = fieldError(`lines[${index}].productId`)
 
@@ -236,10 +239,17 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
                 )}
                 {serverProductError && <p className="field-message">{serverProductError}</p>}
 
-                {onHand !== undefined && (
-                  <p className={`availability${over ? ' warn' : ''}`}>
-                    <span>Available at {fromName}: <strong>{onHand}</strong></span>
-                    {over && <span>More than is on hand now. Dispatch will be refused unless stock arrives first.</span>}
+                {item !== undefined && (
+                  <p className={`availability${overOnHand || overFree ? ' warn' : ''}`}>
+                    <span>
+                      On hand at {fromName}: <strong>{item.onHand}</strong>
+                      {item.requestedOut > 0 && <> · {item.requestedOut} in other open requests</>}
+                      {item.incoming > 0 && <> · {item.incoming} incoming</>}
+                    </span>
+                    {overOnHand && <span>More than is on hand now. Dispatch will be refused unless stock arrives first.</span>}
+                    {overFree && (
+                      <span>Other open requests already ask for {item.requestedOut} of these. Whichever is dispatched first gets the stock.</span>
+                    )}
                   </p>
                 )}
               </li>

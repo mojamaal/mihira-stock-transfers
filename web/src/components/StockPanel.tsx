@@ -24,8 +24,8 @@ export function StockPanel({ branches, version }: Props) {
       .then((items) => {
         if (ignore) return
         const before = previous.current?.branchId === branchId ? previous.current.byProduct : null
-        setChanged(new Set(items.filter((i) => before?.has(i.productId) && before.get(i.productId) !== i.quantity).map((i) => i.productId)))
-        previous.current = { branchId, byProduct: new Map(items.map((i) => [i.productId, i.quantity])) }
+        setChanged(new Set(items.filter((i) => before?.has(i.productId) && before.get(i.productId) !== i.onHand).map((i) => i.productId)))
+        previous.current = { branchId, byProduct: new Map(items.map((i) => [i.productId, i.onHand])) }
         setData({ branchId, items })
         setError(null)
       })
@@ -40,7 +40,7 @@ export function StockPanel({ branches, version }: Props) {
       <div className="card-header" style={{ marginBottom: 12 }}>
         <div>
           <h2 id="stock-title" className="card-title">Stock on Hand</h2>
-          <p className="card-caption">Updates as transfers are dispatched and received.</p>
+          <p className="card-caption">On hand now, with open requests and stock on its way in.</p>
         </div>
       </div>
 
@@ -69,11 +69,17 @@ export function StockPanel({ branches, version }: Props) {
                   <span className="stock-sku">{item.sku}</span>
                 </td>
                 <td>
-                  {item.quantity === 0 && <span className="stock-tag out">Out of stock</span>}
-                  {item.quantity > 0 && item.quantity < LOW_STOCK && <span className="stock-tag low">Low</span>}
-                  <span key={`${item.productId}-${item.quantity}`} className={`stock-qty${changed.has(item.productId) ? ' is-changed' : ''}`}>
-                    {item.quantity}
+                  {item.onHand === 0 && <span className="stock-tag out">Out of stock</span>}
+                  {item.onHand > 0 && item.onHand < LOW_STOCK && <span className="stock-tag low">Low</span>}
+                  <span key={`${item.productId}-${item.onHand}`} className={`stock-qty${changed.has(item.productId) ? ' is-changed' : ''}`}>
+                    {item.onHand}
                   </span>
+                  {(item.requestedOut > 0 || item.incoming > 0) && (
+                    <span className="stock-flow">
+                      {item.requestedOut > 0 && <span title="Asked for by this branch's open requests (not reserved)">{item.requestedOut} requested</span>}
+                      {item.incoming > 0 && <span title="Dispatched to this branch, in transit">+{item.incoming} incoming</span>}
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

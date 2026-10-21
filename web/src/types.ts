@@ -4,7 +4,17 @@ export type Branch = { id: number; name: string; isWarehouse: boolean }
 
 export type Product = { id: number; sku: string; name: string }
 
-export type StockItem = { productId: number; sku: string; name: string; quantity: number }
+export type StockItem = {
+  productId: number
+  sku: string
+  name: string
+  /** Physically at the branch now. */
+  onHand: number
+  /** Asked for by this branch's open outgoing requests. Not reserved: the first dispatch gets the stock. */
+  requestedOut: number
+  /** Dispatched to this branch and still in transit. */
+  incoming: number
+}
 
 export type TransferStatus = 'Requested' | 'Dispatched' | 'Received' | 'Cancelled'
 
