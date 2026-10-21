@@ -29,8 +29,40 @@ public sealed class TransferLifecycleTests(ApiFactory factory) : ApiTestBase(fac
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.False(IsReplay(first));
+        Assert.True(IsReplay(second)); // tells the client nothing changed this time
         Assert.Equal(TransferStatus.Dispatched, (await ReadTransfer(second)).Status);
         Assert.Equal(30, await StockOf(Colombo, Rice));
+    }
+
+    [Fact]
+    public async Task Exactly_one_of_many_parallel_dispatches_is_reported_as_the_one_that_moved_stock()
+    {
+        var id = await CreateTransfer(Colombo, Kandy, (Rice, 10));
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => Act(id, "dispatch")));
+
+        Assert.Single(responses, r => !IsReplay(r));
+    }
+
+    [Fact]
+    public async Task Parallel_receives_into_a_missing_stock_row_create_it_once_and_add_every_amount()
+    {
+        // Kandy has no Coconut Oil row at all, so the first receive creates it and the rest add to it.
+        // (The exact insert race is forced deterministically in StockMoverTests.)
+        await DeleteStockRow(Kandy, CoconutOil);
+        var transfers = new List<int>();
+        for (var i = 0; i < 12; i++)
+        {
+            var id = await CreateTransfer(Warehouse, Kandy, (CoconutOil, 1));
+            await Act(id, "dispatch");
+            transfers.Add(id);
+        }
+
+        var responses = await Task.WhenAll(transfers.Select(id => Act(id, "receive")));
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        Assert.Equal(12, await StockOf(Kandy, CoconutOil));
     }
 
     [Fact]

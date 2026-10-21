@@ -1,63 +1,29 @@
 using MihiraStores.Api.Data;
 using MihiraStores.Api.Domain;
 using MihiraStores.Api.Errors;
-using Microsoft.Data.SqlClient;
+using MihiraStores.Api.Stock;
 using Microsoft.EntityFrameworkCore;
 
 namespace MihiraStores.Api.Transfers;
 
-/// <summary>Owns every transfer rule. Nothing else changes a transfer's status or a branch's stock.</summary>
-public sealed class TransferService(AppDbContext db)
+/// <summary>The outcome of a command. <see cref="Replayed"/> is true when the action had already happened and nothing changed.</summary>
+public sealed record CommandResult(TransferDto Transfer, bool Replayed);
+
+/// <summary>Owns every transfer rule. Nothing else changes a transfer's status, and stock only moves through here.</summary>
+public sealed class TransferService(AppDbContext db, TransferQueries queries, StockMover stock)
 {
-    private const int MaxListSize = 200;
-
-    public async Task<TransferDto> GetAsync(int id, CancellationToken ct)
-    {
-        var transfer = await QueryTransfers().SingleOrDefaultAsync(t => t.Id == id, ct)
-            ?? throw AppException.NotFound($"Transfer #{id} was not found.");
-        return TransferDto.From(transfer);
-    }
-
-    /// <summary>Newest first. <paramref name="branchId"/> matches either the sending or the receiving branch.</summary>
-    public async Task<IReadOnlyList<TransferDto>> ListAsync(int? branchId, string? status, CancellationToken ct)
-    {
-        var query = QueryTransfers();
-
-        if (branchId is int branch)
-        {
-            query = query.Where(t => t.FromBranchId == branch || t.ToBranchId == branch);
-        }
-
-        if (!string.IsNullOrWhiteSpace(status))
-        {
-            if (!Enum.TryParse<TransferStatus>(status, ignoreCase: true, out var parsed) || !Enum.IsDefined(parsed))
-            {
-                throw AppException.Validation(new Dictionary<string, string[]>
-                {
-                    ["status"] = [$"Unknown status '{status}'. Use one of: {string.Join(", ", Enum.GetNames<TransferStatus>())}."],
-                });
-            }
-
-            query = query.Where(t => t.Status == parsed);
-        }
-
-        var transfers = await query.OrderByDescending(t => t.Id).Take(MaxListSize).ToListAsync(ct);
-        return transfers.Select(TransferDto.From).ToList();
-    }
-
     /// <summary>
     /// Creates a transfer in Requested status. Stock is NOT checked or reserved here: it leaves the sender at dispatch.
-    /// Returns <c>Created = false</c> when the idempotency key was already used (a double-click or a retry).
+    /// A repeated idempotency key returns the original transfer instead of creating another.
     /// </summary>
-    public async Task<(TransferDto Transfer, bool Created)> CreateAsync(
-        CreateTransferRequest request, Guid? idempotencyKey, CancellationToken ct)
+    public async Task<CommandResult> CreateAsync(CreateTransferRequest request, Guid? idempotencyKey, CancellationToken ct)
     {
         if (idempotencyKey is Guid key && await FindIdByKeyAsync(key, ct) is int existingId)
         {
-            return (await GetAsync(existingId, ct), false);
+            return new(await queries.GetAsync(existingId, ct), Replayed: true);
         }
 
-        var lines = await ValidateCreateAsync(request, ct);
+        var lines = await TransferValidation.ValidateCreateAsync(db, request, ct);
 
         var transfer = new Transfer
         {
@@ -74,52 +40,38 @@ public sealed class TransferService(AppDbContext db)
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (idempotencyKey is not null && IsUniqueViolation(ex))
+        catch (DbUpdateException ex) when (idempotencyKey is not null && ex.IsUniqueViolation())
         {
             // Two identical requests raced past the lookup above; the unique index let only one in.
             db.ChangeTracker.Clear();
-            var winnerId = await FindIdByKeyAsync(idempotencyKey.Value, ct) ?? throw new InvalidOperationException("Idempotency key conflict without a stored transfer.", ex);
-            return (await GetAsync(winnerId, ct), false);
+            var winnerId = await FindIdByKeyAsync(idempotencyKey.Value, ct)
+                ?? throw new InvalidOperationException("Idempotency key conflict without a stored transfer.", ex);
+            return new(await queries.GetAsync(winnerId, ct), Replayed: true);
         }
 
-        return (await GetAsync(transfer.Id, ct), true);
+        return new(await queries.GetAsync(transfer.Id, ct), Replayed: false);
     }
 
-    // How the state-changing commands stay correct under double-clicks, retries and parallel requests:
+    // How the commands stay correct under double-clicks, retries and parallel requests:
     // each one claims its status change with a single conditional UPDATE ("... WHERE Status = <required>")
     // and uses the affected row count as the answer, instead of reading the status and then writing it.
     // Only one request can win that claim; the rest see 0 rows and are resolved by ResolveUnclaimedAsync.
-    // Stock is moved the same way ("... WHERE Quantity >= @qty"), inside the same transaction.
+    // Stock moves the same way (StockMover's guarded UPDATEs), inside the same transaction.
     // READ COMMITTED is enough: a conditional UPDATE takes an update lock on the row it checks, so a
     // competing request waits, then re-evaluates the WHERE clause against the committed value.
 
-    public async Task<TransferDto> DispatchAsync(int id, CancellationToken ct)
+    public Task<CommandResult> DispatchAsync(int id, CancellationToken ct) => InTransactionAsync(async () =>
     {
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-
-        var claimed = await db.Transfers
-            .Where(t => t.Id == id && t.Status == TransferStatus.Requested)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(t => t.Status, TransferStatus.Dispatched)
-                .SetProperty(t => t.DispatchedAt, DateTimeOffset.UtcNow), ct);
-
-        if (claimed == 0)
+        if (!await ClaimAsync(id, TransferAction.Dispatch, ct))
         {
-            await tx.RollbackAsync(ct);
             return await ResolveUnclaimedAsync(id, TransferAction.Dispatch, ct);
         }
 
-        var transfer = await LoadForStockMovementAsync(id, ct);
+        var transfer = await LoadWithLinesAsync(id, ct);
         var shortLines = new List<TransferLine>();
-
-        // Lines are processed in ProductId order so concurrent transactions always lock stock rows in the same order.
         foreach (var line in transfer.Lines)
         {
-            var taken = await db.StockLevels
-                .Where(s => s.BranchId == transfer.FromBranchId && s.ProductId == line.ProductId && s.Quantity >= line.Quantity)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.Quantity, x => x.Quantity - line.Quantity), ct);
-
-            if (taken == 0)
+            if (!await stock.TryTakeAsync(transfer.FromBranchId, line.ProductId, line.Quantity, ct))
             {
                 shortLines.Add(line);
             }
@@ -127,82 +79,85 @@ public sealed class TransferService(AppDbContext db)
 
         if (shortLines.Count > 0)
         {
-            // Undo the status claim and any lines already taken: a dispatch is all or nothing.
-            await tx.RollbackAsync(ct);
+            // Throwing rolls back the status claim and every line already taken: a dispatch is all or nothing.
             throw await InsufficientStockAsync(id, transfer.FromBranchId, shortLines, ct);
         }
 
-        await tx.CommitAsync(ct);
-        return await GetAsync(id, ct);
-    }
+        return new CommandResult(await queries.GetAsync(id, ct), Replayed: false);
+    }, ct);
 
     /// <summary>
     /// Adds the stock to the receiving branch. The receiver may record less than was sent (e.g. damaged goods):
     /// only the received quantity is added, and the line keeps both figures so the shortfall stays on record.
     /// </summary>
-    public async Task<TransferDto> ReceiveAsync(int id, ReceiveTransferRequest? request, CancellationToken ct)
+    public Task<CommandResult> ReceiveAsync(int id, ReceiveTransferRequest? request, CancellationToken ct) => InTransactionAsync(async () =>
     {
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-
-        var claimed = await db.Transfers
-            .Where(t => t.Id == id && t.Status == TransferStatus.Dispatched)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(t => t.Status, TransferStatus.Received)
-                .SetProperty(t => t.ReceivedAt, DateTimeOffset.UtcNow), ct);
-
-        if (claimed == 0)
+        if (!await ClaimAsync(id, TransferAction.Receive, ct))
         {
-            await tx.RollbackAsync(ct);
             return await ResolveUnclaimedAsync(id, TransferAction.Receive, ct);
         }
 
-        var transfer = await LoadForStockMovementAsync(id, ct);
-
-        Dictionary<int, int> receivedByProduct;
-        try
-        {
-            receivedByProduct = ValidateReceivedQuantities(transfer, request);
-        }
-        catch
-        {
-            await tx.RollbackAsync(ct); // leave the transfer Dispatched
-            throw;
-        }
+        var transfer = await LoadWithLinesAsync(id, ct);
+        var receivedByProduct = TransferValidation.ValidateReceive(transfer, request); // throwing leaves it Dispatched
 
         foreach (var line in transfer.Lines)
         {
             var received = receivedByProduct.GetValueOrDefault(line.ProductId, line.Quantity);
-
             await db.TransferLines
                 .Where(l => l.Id == line.Id)
                 .ExecuteUpdateAsync(s => s.SetProperty(l => l.QuantityReceived, received), ct);
-
-            await AddStockAsync(transfer.ToBranchId, line.ProductId, received, ct);
+            await stock.AddAsync(transfer.ToBranchId, line.ProductId, received, ct);
         }
 
-        await tx.CommitAsync(ct);
-        return await GetAsync(id, ct);
-    }
+        return new CommandResult(await queries.GetAsync(id, ct), Replayed: false);
+    }, ct);
 
     /// <summary>Cancels a transfer that has not been dispatched. Stock never moves on cancel.</summary>
-    public async Task<TransferDto> CancelAsync(int id, CancellationToken ct)
-    {
-        var claimed = await db.Transfers
-            .Where(t => t.Id == id && t.Status == TransferStatus.Requested)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(t => t.Status, TransferStatus.Cancelled)
-                .SetProperty(t => t.CancelledAt, DateTimeOffset.UtcNow), ct);
+    public Task<CommandResult> CancelAsync(int id, CancellationToken ct) => InTransactionAsync(async () =>
+        await ClaimAsync(id, TransferAction.Cancel, ct)
+            ? new CommandResult(await queries.GetAsync(id, ct), Replayed: false)
+            : await ResolveUnclaimedAsync(id, TransferAction.Cancel, ct), ct);
 
-        return claimed == 0
-            ? await ResolveUnclaimedAsync(id, TransferAction.Cancel, ct)
-            : await GetAsync(id, ct);
+    /// <summary>
+    /// Runs <paramref name="work"/> in one transaction under EF's retrying execution strategy, so a transient
+    /// SQL failure (dropped connection, failover, deadlock victim) re-runs the whole unit instead of failing.
+    /// Re-running is safe because every command is idempotent: if an earlier attempt actually committed,
+    /// the retry's status claim finds nothing to claim and returns the transfer as a replay.
+    /// Throwing from <paramref name="work"/> rolls everything back (the transaction is disposed uncommitted).
+    /// </summary>
+    private Task<CommandResult> InTransactionAsync(Func<Task<CommandResult>> work, CancellationToken ct) =>
+        db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            var result = await work();
+            await tx.CommitAsync(ct);
+            return result;
+        });
+
+    /// <summary>Moves the transfer to the action's resulting status, but only if it is in the required status.</summary>
+    private async Task<bool> ClaimAsync(int id, TransferAction action, CancellationToken ct)
+    {
+        var required = TransferWorkflow.RequiredStatus(action);
+        var next = TransferWorkflow.ResultingStatus(action);
+        var now = DateTimeOffset.UtcNow;
+        var claimable = db.Transfers.Where(t => t.Id == id && t.Status == required);
+
+        var claimed = action switch
+        {
+            TransferAction.Dispatch => await claimable.ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, next).SetProperty(t => t.DispatchedAt, now), ct),
+            TransferAction.Receive => await claimable.ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, next).SetProperty(t => t.ReceivedAt, now), ct),
+            TransferAction.Cancel => await claimable.ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, next).SetProperty(t => t.CancelledAt, now), ct),
+            _ => throw new ArgumentOutOfRangeException(nameof(action)),
+        };
+        return claimed == 1;
     }
 
     /// <summary>
     /// A command claimed nothing. Either the transfer is missing (404), the same action already happened
     /// (an idempotent replay: return the transfer unchanged, move no stock), or the action is not allowed (409).
     /// </summary>
-    private async Task<TransferDto> ResolveUnclaimedAsync(int id, TransferAction action, CancellationToken ct)
+    private async Task<CommandResult> ResolveUnclaimedAsync(int id, TransferAction action, CancellationToken ct)
     {
         var status = await db.Transfers.AsNoTracking()
             .Where(t => t.Id == id)
@@ -212,74 +167,22 @@ public sealed class TransferService(AppDbContext db)
 
         if (status == TransferWorkflow.ResultingStatus(action))
         {
-            return await GetAsync(id, ct);
+            return new CommandResult(await queries.GetAsync(id, ct), Replayed: true);
         }
 
         throw AppException.Conflict(TransferWorkflow.RejectionMessage(id, action, status));
     }
 
-    private static Dictionary<int, int> ValidateReceivedQuantities(Transfer transfer, ReceiveTransferRequest? request)
-    {
-        var result = new Dictionary<int, int>();
-        var errors = new Dictionary<string, string[]>();
-        var lines = request?.Lines ?? [];
-
-        for (var i = 0; i < lines.Count; i++)
-        {
-            var line = lines[i];
-            var sent = transfer.Lines.FirstOrDefault(l => l.ProductId == line?.ProductId);
-
-            if (line?.ProductId is null || sent is null)
-            {
-                errors[$"lines[{i}].productId"] = ["This product is not part of the transfer."];
-            }
-            else if (result.ContainsKey(sent.ProductId))
-            {
-                errors[$"lines[{i}].productId"] = ["Each product can be listed only once."];
-            }
-            else if (line.QuantityReceived is not int received || received < 0 || received > sent.Quantity)
-            {
-                errors[$"lines[{i}].quantityReceived"] = [$"Received quantity must be between 0 and the {sent.Quantity} sent."];
-            }
-            else
-            {
-                result[sent.ProductId] = received;
-            }
-        }
-
-        return errors.Count > 0 ? throw AppException.Validation(errors) : result;
-    }
-
-    private async Task AddStockAsync(int branchId, int productId, int quantity, CancellationToken ct)
-    {
-        if (quantity == 0)
-        {
-            return;
-        }
-
-        var updated = await db.StockLevels
-            .Where(s => s.BranchId == branchId && s.ProductId == productId)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Quantity, x => x.Quantity + quantity), ct);
-
-        if (updated == 0)
-        {
-            // The seeder creates a row for every branch × product, but don't rely on that silently.
-            db.StockLevels.Add(new StockLevel { BranchId = branchId, ProductId = productId, Quantity = quantity });
-            await db.SaveChangesAsync(ct);
-        }
-    }
-
-    private async Task<Transfer> LoadForStockMovementAsync(int id, CancellationToken ct)
-    {
-        var transfer = await db.Transfers.AsNoTracking()
+    /// <summary>Lines come back in ProductId order so concurrent transactions always lock stock rows in the same order.</summary>
+    private Task<Transfer> LoadWithLinesAsync(int id, CancellationToken ct) =>
+        db.Transfers.AsNoTracking()
             .Include(t => t.Lines.OrderBy(l => l.ProductId))
             .SingleAsync(t => t.Id == id, ct);
-        return transfer;
-    }
 
     private async Task<AppException> InsufficientStockAsync(
         int transferId, int branchId, List<TransferLine> shortLines, CancellationToken ct)
     {
+        // Short lines were not changed, so these reads show the figures that made the dispatch fail.
         var productIds = shortLines.Select(l => l.ProductId).ToList();
         var branchName = await db.Branches.Where(b => b.Id == branchId).Select(b => b.Name).SingleAsync(ct);
         var available = await db.Products.AsNoTracking()
@@ -308,82 +211,4 @@ public sealed class TransferService(AppDbContext db)
             .Where(t => t.IdempotencyKey == key)
             .Select(t => (int?)t.Id)
             .SingleOrDefaultAsync(ct);
-
-    private static bool IsUniqueViolation(DbUpdateException ex) =>
-        ex.InnerException is SqlException { Number: 2601 or 2627 };
-
-    private record struct ValidLine(int ProductId, int Quantity);
-
-    private const int MaxLines = 50;
-    private const int MaxQuantity = 1_000_000;
-
-    /// <summary>Reports every input problem at once (400), then checks that referenced branches and products exist (404).</summary>
-    private async Task<IReadOnlyList<ValidLine>> ValidateCreateAsync(CreateTransferRequest request, CancellationToken ct)
-    {
-        var errors = new Dictionary<string, List<string>>();
-        void Add(string field, string message) =>
-            (errors.TryGetValue(field, out var list) ? list : errors[field] = []).Add(message);
-
-        if (request.FromBranchId is null) Add("fromBranchId", "Choose the branch sending the stock.");
-        if (request.ToBranchId is null) Add("toBranchId", "Choose the branch receiving the stock.");
-        if (request.FromBranchId is not null && request.FromBranchId == request.ToBranchId)
-        {
-            Add("toBranchId", "From and to branches must be different.");
-        }
-
-        var lines = request.Lines ?? [];
-        if (lines.Count == 0) Add("lines", "Add at least one product.");
-        if (lines.Count > MaxLines) Add("lines", $"A transfer can have at most {MaxLines} products.");
-
-        for (var i = 0; i < lines.Count; i++)
-        {
-            var line = lines[i];
-            if (line is null)
-            {
-                Add($"lines[{i}]", "This line is empty.");
-                continue;
-            }
-
-            if (line.ProductId is null) Add($"lines[{i}].productId", "Choose a product.");
-            if (line.Quantity is null or < 1) Add($"lines[{i}].quantity", "Quantity must be more than zero.");
-            else if (line.Quantity > MaxQuantity) Add($"lines[{i}].quantity", $"Quantity cannot be more than {MaxQuantity:N0}.");
-        }
-
-        var productIds = lines.Where(l => l?.ProductId is not null).Select(l => l.ProductId!.Value).ToList();
-        var products = await db.Products.AsNoTracking()
-            .Where(p => productIds.Contains(p.Id))
-            .ToDictionaryAsync(p => p.Id, ct);
-
-        foreach (var duplicate in productIds.GroupBy(id => id).Where(g => g.Count() > 1).Select(g => g.Key))
-        {
-            var label = products.TryGetValue(duplicate, out var p) ? p.Sku : $"#{duplicate}";
-            Add("lines", $"Product {label} appears more than once; combine the lines.");
-        }
-
-        if (errors.Count > 0)
-        {
-            throw AppException.Validation(errors.ToDictionary(e => e.Key, e => e.Value.ToArray()));
-        }
-
-        var branchIds = new[] { request.FromBranchId!.Value, request.ToBranchId!.Value };
-        var existingBranches = await db.Branches.Where(b => branchIds.Contains(b.Id)).Select(b => b.Id).ToListAsync(ct);
-        foreach (var missing in branchIds.Except(existingBranches))
-        {
-            throw AppException.NotFound($"Branch #{missing} was not found.");
-        }
-
-        foreach (var missing in productIds.Except(products.Keys))
-        {
-            throw AppException.NotFound($"Product #{missing} was not found.");
-        }
-
-        return lines.Select(l => new ValidLine(l.ProductId!.Value, l.Quantity!.Value)).ToList();
-    }
-
-    private IQueryable<Transfer> QueryTransfers() =>
-        db.Transfers.AsNoTracking()
-            .Include(t => t.FromBranch)
-            .Include(t => t.ToBranch)
-            .Include(t => t.Lines).ThenInclude(l => l.Product)
-            .AsSplitQuery();
 }

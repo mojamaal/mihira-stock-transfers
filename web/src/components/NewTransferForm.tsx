@@ -22,7 +22,8 @@ type Props = {
   products: Product[]
   /** Bumped by the parent after any change, so the available-stock hints stay current. */
   version: number
-  onCreated: (transfer: Transfer) => void
+  /** `replayed` is true when the server recognised a repeat of an earlier submission and created nothing new. */
+  onCreated: (transfer: Transfer, replayed: boolean) => void
 }
 
 export function NewTransferForm({ branches, products, version, onCreated }: Props) {
@@ -92,7 +93,7 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
     setSubmitting(true)
     setError(null)
     try {
-      const transfer = await api.createTransfer(
+      const { transfer, replayed } = await api.createTransfer(
         {
           fromBranchId: fromId,
           toBranchId: toId,
@@ -102,7 +103,7 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
       )
       setLines([emptyLine()])
       setIdempotencyKey(newIdempotencyKey())
-      onCreated(transfer)
+      onCreated(transfer, replayed)
     } catch (err) {
       // Keep the form and the same key, so retrying cannot create a duplicate.
       const apiError = toApiError(err)
@@ -118,7 +119,7 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
   const stores = branches.filter((b) => !b.isWarehouse)
   const branchOptions = (
     <>
-      <option value="" disabled>Choose…</option>
+      <option value="" disabled>Chooseâ€¦</option>
       {warehouse.length > 0 && (
         <optgroup label="Warehouse">
           {warehouse.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -204,7 +205,7 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
                     value={line.productId ?? ''}
                     onChange={(e) => updateLine(line.key, { productId: Number(e.target.value) })}
                   >
-                    <option value="" disabled>Choose a product…</option>
+                    <option value="" disabled>Choose a productâ€¦</option>
                     {products.map((p) => (
                       <option key={p.id} value={p.id} disabled={p.id !== line.productId && usedProducts.has(p.id)}>
                         {p.name}
@@ -252,7 +253,7 @@ export function NewTransferForm({ branches, products, version, onCreated }: Prop
         </button>
 
         <button type="submit" className="btn btn-filled btn-large" disabled={!canSubmit} aria-busy={submitting}>
-          {submitting ? <><span className="spinner" aria-hidden="true" /> Requesting…</> : 'Request Transfer'}
+          {submitting ? <><span className="spinner" aria-hidden="true" /> Requestingâ€¦</> : 'Request Transfer'}
         </button>
       </form>
     </section>

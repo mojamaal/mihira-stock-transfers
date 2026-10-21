@@ -83,6 +83,15 @@ public abstract class ApiTestBase(ApiFactory factory) : IAsyncLifetime
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Quantity, quantity));
     }
 
+    protected async Task DeleteStockRow(int branchId, int productId)
+    {
+        await using var db = Factory.CreateDbContext();
+        await db.StockLevels.Where(s => s.BranchId == branchId && s.ProductId == productId).ExecuteDeleteAsync();
+    }
+
+    protected static bool IsReplay(HttpResponseMessage response) =>
+        response.Headers.TryGetValues("Idempotent-Replayed", out var values) && values.Contains("true");
+
     protected async Task<TransferStatus> StatusOf(int transferId)
     {
         await using var db = Factory.CreateDbContext();

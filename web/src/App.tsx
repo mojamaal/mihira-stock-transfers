@@ -4,7 +4,7 @@ import { NewTransferForm } from './components/NewTransferForm'
 import { StockPanel } from './components/StockPanel'
 import { TransferList } from './components/TransferList'
 import { TransferGlyph } from './components/icons'
-import { ErrorBanner, Toast } from './components/ui'
+import { ErrorBanner, Toast, type ToastTone } from './components/ui'
 import type { Branch, Product, Transfer, TransferAction } from './types'
 
 const ACTION_MESSAGES: Record<TransferAction, (t: Transfer) => string> = {
@@ -13,12 +13,19 @@ const ACTION_MESSAGES: Record<TransferAction, (t: Transfer) => string> = {
   cancel: (t) => `Transfer #${t.id} cancelled`,
 }
 
+// When the server reports a replay, the action had already happened (often by another person): say so honestly.
+const REPLAY_MESSAGES: Record<TransferAction, (t: Transfer) => string> = {
+  dispatch: (t) => `Transfer #${t.id} was already dispatched. No stock moved again.`,
+  receive: (t) => `Transfer #${t.id} was already received. No stock moved again.`,
+  cancel: (t) => `Transfer #${t.id} was already cancelled.`,
+}
+
 export default function App() {
   const [reference, setReference] = useState<{ branches: Branch[]; products: Product[] } | null>(null)
   const [loadError, setLoadError] = useState<ApiError | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [version, setVersion] = useState(0)
-  const [toast, setToast] = useState<{ id: number; message: string } | null>(null)
+  const [toast, setToast] = useState<{ id: number; message: string; tone: ToastTone } | null>(null)
 
   useEffect(() => {
     let ignore = false
@@ -40,9 +47,9 @@ export default function App() {
   }, [toast])
 
   // Any change refreshes every view (list, stock panel, availability hints).
-  const notify = useCallback((message: string) => {
+  const notify = useCallback((message: string, tone: ToastTone = 'success') => {
     setVersion((v) => v + 1)
-    setToast({ id: Date.now(), message })
+    setToast({ id: Date.now(), message, tone })
   }, [])
 
   return (
@@ -75,7 +82,9 @@ export default function App() {
               branches={reference.branches}
               products={reference.products}
               version={version}
-              onCreated={(t) => notify(`Transfer #${t.id} requested: ${t.fromBranch.name} → ${t.toBranch.name}`)}
+              onCreated={(t, replayed) => replayed
+                ? notify(`Transfer #${t.id} was already requested. No duplicate was created.`, 'info')
+                : notify(`Transfer #${t.id} requested: ${t.fromBranch.name} → ${t.toBranch.name}`)}
             />
             <StockPanel branches={reference.branches} version={version} />
           </div>
@@ -83,13 +92,15 @@ export default function App() {
             <TransferList
               branches={reference.branches}
               version={version}
-              onChanged={(t, action) => notify(ACTION_MESSAGES[action](t))}
+              onChanged={(t, action, replayed) => replayed
+                ? notify(REPLAY_MESSAGES[action](t), 'info')
+                : notify(ACTION_MESSAGES[action](t))}
             />
           </div>
         </main>
       )}
 
-      {toast && <Toast key={toast.id} message={toast.message} />}
+      {toast && <Toast key={toast.id} message={toast.message} tone={toast.tone} />}
     </>
   )
 }

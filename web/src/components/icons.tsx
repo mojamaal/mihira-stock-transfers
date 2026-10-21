@@ -56,7 +56,15 @@ export const Check = ({ size = 18 }: IconProps) => (
   </svg>
 )
 
-export const Refresh = ({ size = 16 }: IconProps) => (
+export const Info = ({ size = 18 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 20 20" aria-hidden="true">
+    <circle cx="10" cy="10" r="8.5" fill="currentColor" />
+    <path d="M10 9v5" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" />
+    <circle cx="10" cy="6.3" r="1.1" fill="#fff" />
+  </svg>
+)
+
+export const Refresh =({ size = 16 }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
     <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" {...stroke} />
   </svg>

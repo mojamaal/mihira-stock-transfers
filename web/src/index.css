@@ -302,6 +302,7 @@ button, input, select { font: inherit; color: inherit; }
   animation: toast-in 0.35s var(--ease);
 }
 .toast-icon { color: var(--green); flex: none; }
+.toast-info .toast-icon { color: var(--accent); }
 
 .sheet {
   border: none; padding: 0; border-radius: 18px; width: min(440px, calc(100vw - 32px));

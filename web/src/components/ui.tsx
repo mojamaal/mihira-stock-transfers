@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import type { ApiError } from '../api'
 import type { TransferStatus } from '../types'
-import { Check, Close, Minus, Plus, Warning } from './icons'
+import { Check, Close, Info, Minus, Plus, Warning } from './icons'
 
 /** A dismissible error message. Shows the server's explanation, plus any field-level problems. */
 export function ErrorBanner({ error, onDismiss }: { error: ApiError; onDismiss: () => void }) {
@@ -28,10 +28,12 @@ export function ErrorBanner({ error, onDismiss }: { error: ApiError; onDismiss: 
   )
 }
 
-export function Toast({ message }: { message: string }) {
+export type ToastTone = 'success' | 'info'
+
+export function Toast({ message, tone = 'success' }: { message: string; tone?: ToastTone }) {
   return (
-    <div className="toast" role="status" aria-live="polite">
-      <span className="toast-icon"><Check /></span>
+    <div className={`toast toast-${tone}`} role="status" aria-live="polite">
+      <span className="toast-icon">{tone === 'success' ? <Check /> : <Info />}</span>
       {message}
     </div>
   )

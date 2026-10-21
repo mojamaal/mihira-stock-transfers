@@ -1,4 +1,5 @@
 using MihiraStores.Api.Data;
+using MihiraStores.Api.Domain;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -54,15 +55,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         await using var db = CreateDbContext();
         await db.TransferLines.ExecuteDeleteAsync();
         await db.Transfers.ExecuteDeleteAsync();
+        await db.StockLevels.ExecuteDeleteAsync(); // tests may delete rows, so rebuild them all
 
-        foreach (var ((branch, sku), quantity) in DbSeeder.StartingStock)
+        db.StockLevels.AddRange(DbSeeder.StartingStock.Select(s => new StockLevel
         {
-            var branchId = BranchIds[branch];
-            var productId = ProductIds[sku];
-            await db.StockLevels
-                .Where(s => s.BranchId == branchId && s.ProductId == productId)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.Quantity, quantity));
-        }
+            BranchId = BranchIds[s.Key.Branch],
+            ProductId = ProductIds[s.Key.Sku],
+            Quantity = s.Value,
+        }));
+        await db.SaveChangesAsync();
     }
 }
 

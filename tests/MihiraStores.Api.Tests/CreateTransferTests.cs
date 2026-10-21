@@ -101,6 +101,7 @@ public sealed class CreateTransferTests(ApiFactory factory) : ApiTestBase(factor
 
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
         Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.True(IsReplay(second));
         Assert.Equal((await ReadTransfer(first)).Id, (await ReadTransfer(second)).Id);
         Assert.Equal(1, await TransferCount());
     }

@@ -24,7 +24,21 @@ export class ApiError extends Error {
 
 type ProblemDetails = { title?: string; detail?: string; errors?: Record<string, string[]> }
 
+/** The server sets this header when a request repeated something that had already happened, so nothing changed. */
+const REPLAYED_HEADER = 'Idempotent-Replayed'
+
+export type CommandResult = { transfer: Transfer; replayed: boolean }
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await send<T>(path, init)).data
+}
+
+async function command(path: string, init: RequestInit): Promise<CommandResult> {
+  const { data, response } = await send<Transfer>(path, init)
+  return { transfer: data, replayed: response.headers.get(REPLAYED_HEADER) === 'true' }
+}
+
+async function send<T>(path: string, init?: RequestInit): Promise<{ data: T; response: Response }> {
   let response: Response
   try {
     response = await fetch(`/api${path}`, {
@@ -36,7 +50,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (response.ok) {
-    return (await response.json()) as T
+    return { data: (await response.json()) as T, response }
   }
 
   let problem: ProblemDetails = {}
@@ -73,14 +87,14 @@ export const api = {
 
   /** The idempotency key makes a double-click or a retry return the same transfer instead of creating another. */
   createTransfer: (body: CreateTransferRequest, idempotencyKey: string) =>
-    request<Transfer>('/transfers', {
+    command('/transfers', {
       method: 'POST',
       body: JSON.stringify(body),
       headers: { 'Idempotency-Key': idempotencyKey },
     }),
 
   act: (transferId: number, action: TransferAction, body?: unknown) =>
-    request<Transfer>(`/transfers/${transferId}/${action}`, {
+    command(`/transfers/${transferId}/${action}`, {
       method: 'POST',
       body: body === undefined ? undefined : JSON.stringify(body),
     }),

@@ -8,9 +8,9 @@ const dateFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: '
 const formatDate = (iso: string) => dateFormat.format(new Date(iso))
 
 const ACTION_LABELS: Record<TransferAction, { idle: string; busy: string; className: string }> = {
-  dispatch: { idle: 'Dispatch', busy: 'Dispatching…', className: 'btn-filled' },
-  receive: { idle: 'Receive', busy: 'Receiving…', className: 'btn-success' },
-  cancel: { idle: 'Cancel', busy: 'Cancelling…', className: 'btn-destructive' },
+  dispatch: { idle: 'Dispatch', busy: 'Dispatchingâ€¦', className: 'btn-filled' },
+  receive: { idle: 'Receive', busy: 'Receivingâ€¦', className: 'btn-success' },
+  cancel: { idle: 'Cancel', busy: 'Cancellingâ€¦', className: 'btn-destructive' },
 }
 
 // Buttons appear in this order regardless of the order the server lists them.
@@ -20,7 +20,8 @@ type Props = {
   branches: Branch[]
   /** Bumped by the parent after any change, so the list refetches. */
   version: number
-  onChanged: (transfer: Transfer, action: TransferAction) => void
+  /** `replayed` is true when the action had already been done (e.g. by someone else) and nothing changed. */
+  onChanged: (transfer: Transfer, action: TransferAction, replayed: boolean) => void
 }
 
 export function TransferList({ branches, version, onChanged }: Props) {
@@ -68,10 +69,10 @@ export function TransferList({ branches, version, onChanged }: Props) {
     setActionError(null)
 
     try {
-      const updated = await api.act(transfer.id, action, body)
+      const { transfer: updated, replayed } = await api.act(transfer.id, action, body)
       setTransfers((list) => list?.map((t) => (t.id === updated.id ? updated : t)) ?? list)
       setRecentlyUpdated(updated.id)
-      onChanged(updated, action)
+      onChanged(updated, action, replayed)
     } catch (err) {
       const error = toApiError(err)
       // Title the message by what the user tried, e.g. "Couldn't dispatch transfer #12"; the detail says why.
@@ -168,7 +169,7 @@ export function TransferList({ branches, version, onChanged }: Props) {
       <Sheet
         open={confirmCancel !== null}
         title={`Cancel transfer #${confirmCancel?.id ?? ''}?`}
-        message={confirmCancel && `${confirmCancel.fromBranch.name} → ${confirmCancel.toBranch.name}. No stock has moved yet, and this can't be undone.`}
+        message={confirmCancel && `${confirmCancel.fromBranch.name} â†’ ${confirmCancel.toBranch.name}. No stock has moved yet, and this can't be undone.`}
         confirmLabel="Cancel Transfer"
         cancelLabel="Keep"
         tone="destructive"
@@ -273,8 +274,8 @@ function TransferRow({ transfer: t, busyAction, highlighted, onAction }: RowProp
           const short = l.quantityReceived !== null && l.quantityReceived < l.quantity ? l.quantity - l.quantityReceived : 0
           return (
             <span key={l.productId} className="chip" title={l.sku}>
-              {l.productName} <span className="chip-qty">× {l.quantity}</span>
-              {short > 0 && <span className="chip-short">· {short} short</span>}
+              {l.productName} <span className="chip-qty">Ã— {l.quantity}</span>
+              {short > 0 && <span className="chip-short">Â· {short} short</span>}
             </span>
           )
         })}
