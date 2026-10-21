@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MihiraStores.Api/MihiraStores.Api.csproj" />
+  </Folder>
+</Solution>
