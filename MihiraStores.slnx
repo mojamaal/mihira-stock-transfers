@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/MihiraStores.Api/MihiraStores.Api.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MihiraStores.Api.Tests/MihiraStores.Api.Tests.csproj" />
+  </Folder>
 </Solution>
